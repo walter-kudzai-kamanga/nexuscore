@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import secrets
 import time
 import uuid
 from typing import Any, Dict
@@ -18,6 +19,7 @@ ACCESS_TTL_SECONDS = int(os.getenv("NEXUS_ACCESS_TTL_SECONDS", "900"))
 REFRESH_TTL_SECONDS = int(os.getenv("NEXUS_REFRESH_TTL_SECONDS", "604800"))
 ALGORITHM = "HS256"
 COOKIE_SECURE = os.getenv("NEXUS_COOKIE_SECURE", "true").lower() == "true"
+CSRF_HEADER = "x-csrf-token"
 
 
 def hash_password(password: str) -> str:
@@ -79,6 +81,28 @@ def _extract_bearer_from_request(request: Request) -> str | None:
     if auth and auth.lower().startswith("bearer "):
         return auth.split(" ", maxsplit=1)[1]
     return request.cookies.get("nexus_access_token")
+
+
+def requires_csrf(request: Request) -> bool:
+    if request.method.upper() in {"GET", "HEAD", "OPTIONS"}:
+        return False
+    has_bearer = bool(request.headers.get("Authorization", "").lower().startswith("bearer "))
+    if has_bearer:
+        return False
+    return bool(request.cookies.get("nexus_access_token") or request.cookies.get("nexus_refresh_token"))
+
+
+def enforce_csrf(request: Request) -> None:
+    if not requires_csrf(request):
+        return
+    csrf_cookie = request.cookies.get("nexus_csrf_token", "")
+    csrf_header = request.headers.get(CSRF_HEADER, "")
+    if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
+
+
+def create_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
 
 
 def current_identity(request: Request) -> Dict[str, Any]:

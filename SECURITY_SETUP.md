@@ -26,6 +26,12 @@ alembic upgrade head
 
 The migration uses `DATABASE_URL` if set, otherwise `alembic.ini` fallback.
 
+Automatic startup migrations are available with safe gating:
+
+- `NEXUS_AUTO_MIGRATE=true`
+- `NEXUS_AUTO_MIGRATE_WITH_LOCK=true` (Postgres advisory lock)
+- `NEXUS_AUTO_MIGRATE_ALLOW_SQLITE=true` (only for local/dev sqlite)
+
 ## 3) Start Stack
 
 ```bash
@@ -37,4 +43,7 @@ docker compose up --build
 - `POST /api/auth/login` sets HttpOnly cookies.
 - Protected API routes now accept either bearer token or cookie-backed auth.
 - `GET /api/events/stream` uses cookie/session auth (no query token).
+- Cookie-authenticated mutating endpoints require CSRF header:
+  - read `nexus_csrf_token` cookie value
+  - send as `x-csrf-token` header
 

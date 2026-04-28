@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import PlainTextResponse
 
 from app.core.kafka_producer import kafka_observability_metrics
-from app.core.security import require_roles
+from app.core.security import enforce_csrf, require_roles
 from app.services.state_store import store, utc_iso
 
 router = APIRouter()
@@ -43,9 +43,11 @@ async def kafka_metrics(_: Dict[str, Any] = Depends(require_roles("admin", "oper
 
 @router.post("/bank/adapter/ingest")
 def bank_adapter_ingest(
+    request: Request,
     payload: Dict[str, Any] = Body(...),
     _: Dict[str, Any] = Depends(require_roles("admin", "operator")),
 ) -> Dict[str, Any]:
+    enforce_csrf(request)
     event_type = payload.get("event_type", "transaction")
     customer_scope = payload.get("scope", "sensitive")
     encrypted = {"cipher": "AES-256-GCM", "version": "1", "payload": payload}
@@ -62,9 +64,11 @@ def bank_adapter_ingest(
 
 @router.post("/identity/correlate")
 def correlate_identity(
+    request: Request,
     payload: Dict[str, Any] = Body(...),
     _: Dict[str, Any] = Depends(require_roles("admin")),
 ) -> Dict[str, Any]:
+    enforce_csrf(request)
     identities = payload.get("identities", [])
     score = round(min(len(identities) * 0.2, 0.99), 2)
     result = {
@@ -78,9 +82,11 @@ def correlate_identity(
 
 @router.post("/graph/relationships")
 def relationship_graph(
+    request: Request,
     payload: Dict[str, Any] = Body(...),
     _: Dict[str, Any] = Depends(require_roles("admin")),
 ) -> Dict[str, Any]:
+    enforce_csrf(request)
     nodes = payload.get("nodes", [])
     edges = payload.get("edges", [])
     graph = {"nodes": len(nodes), "edges": len(edges), "generated_at": utc_iso()}

@@ -14,9 +14,12 @@ from app.core.security import (
     COOKIE_SECURE,
     REFRESH_TTL_SECONDS,
     create_access_token,
+    create_csrf_token,
     create_refresh_token,
     current_identity,
+    enforce_csrf,
     hash_password,
+    require_roles,
     verify_password,
     verify_token,
 )
@@ -26,6 +29,7 @@ router = APIRouter()
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    csrf_token = create_csrf_token()
     response.set_cookie(
         key="nexus_access_token",
         value=access_token,
@@ -33,6 +37,15 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         secure=COOKIE_SECURE,
         samesite="strict",
         max_age=ACCESS_TTL_SECONDS,
+        path="/",
+    )
+    response.set_cookie(
+        key="nexus_csrf_token",
+        value=csrf_token,
+        httponly=False,
+        secure=COOKIE_SECURE,
+        samesite="strict",
+        max_age=REFRESH_TTL_SECONDS,
         path="/",
     )
     response.set_cookie(
@@ -84,6 +97,8 @@ def refresh(
     request: Request = None,
     response: Response = None,
 ) -> Dict[str, Any]:
+    if request is not None:
+        enforce_csrf(request)
     body = payload or {}
     refresh_token = body.get("refresh_token") or (request.cookies.get("nexus_refresh_token") if request else "")
     if not refresh_token:
@@ -115,20 +130,26 @@ def refresh(
 
 
 @router.post("/auth/logout")
-def logout(response: Response, identity: Dict[str, Any] = Depends(current_identity)) -> Dict[str, Any]:
+def logout(request: Request, response: Response, identity: Dict[str, Any] = Depends(current_identity)) -> Dict[str, Any]:
+    enforce_csrf(request)
     store.revoke_user_refresh_tokens(identity["sub"])
     response.delete_cookie("nexus_access_token", path="/")
     response.delete_cookie("nexus_refresh_token", path="/api/auth")
+    response.delete_cookie("nexus_csrf_token", path="/")
     return {"ok": True}
 
 
 @router.get("/auth/me")
-def me(authorization: str | None = Header(default=None), identity: Dict[str, Any] = Depends(current_identity)) -> Dict[str, Any]:
+def me(identity: Dict[str, Any] = Depends(current_identity)) -> Dict[str, Any]:
     return {"user": identity.get("sub"), "role": identity.get("role"), "exp": identity.get("exp")}
 
 
 @router.post("/auth/bootstrap")
-def bootstrap_users() -> Dict[str, Any]:
+def bootstrap_users(
+    request: Request,
+    _: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
+    enforce_csrf(request)
     raw = get_env_or_file("NEXUS_BOOTSTRAP_USERS_JSON", default="{}") or "{}"
     try:
         users = json.loads(raw)
