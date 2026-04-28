@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import suppress
 
 from fastapi import FastAPI, Request
@@ -8,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.api.routes import auth, platform, status
+from app.core.config import get_env_or_file
 from app.core.kafka_consumer import start_kafka_consumer
 from app.core.security import hash_password
 from app.core.kafka_producer import ensure_kafka_topics, start_kafka_producer, stop_kafka_producer
@@ -88,12 +90,16 @@ def bootstrap_default_services() -> None:
 
 
 def bootstrap_default_users() -> None:
-    users = {
-        "admin": ("admin123", "admin"),
-        "operator": ("operator123", "operator"),
-        "developer": ("developer123", "developer"),
-    }
-    for username, (password, role) in users.items():
+    raw = get_env_or_file("NEXUS_BOOTSTRAP_USERS_JSON", default="{}") or "{}"
+    try:
+        users = json.loads(raw)
+    except json.JSONDecodeError:
+        users = {}
+    for username, config in users.items():
+        password = config.get("password")
+        role = config.get("role")
+        if not password or not role:
+            continue
         current = store.get_user(username)
         if current:
             continue

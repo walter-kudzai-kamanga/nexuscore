@@ -1,0 +1,15 @@
+{
+  "admin": {
+    "password": "replace-admin-password",
+    "role": "admin"
+  },
+  "operator": {
+    "password": "replace-operator-password",
+    "role": "operator"
+  },
+  "developer": {
+    "password": "replace-developer-password",
+    "role": "developer"
+  }
+}
+

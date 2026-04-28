@@ -8,15 +8,16 @@ import uuid
 from typing import Any, Dict
 
 import jwt
-from fastapi import Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Request
 
-SECRET = os.getenv("NEXUS_SECRET_KEY", "dev-secret-change-me-super-long")
-SERVICE_API_KEY = os.getenv("NEXUS_SERVICE_API_KEY", "nexus-service-key")
+from app.core.config import require_env_or_file
+
+SECRET = require_env_or_file("NEXUS_SECRET_KEY")
+SERVICE_API_KEY = require_env_or_file("NEXUS_SERVICE_API_KEY")
 ACCESS_TTL_SECONDS = int(os.getenv("NEXUS_ACCESS_TTL_SECONDS", "900"))
 REFRESH_TTL_SECONDS = int(os.getenv("NEXUS_REFRESH_TTL_SECONDS", "604800"))
 ALGORITHM = "HS256"
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+COOKIE_SECURE = os.getenv("NEXUS_COOKIE_SECURE", "true").lower() == "true"
 
 
 def hash_password(password: str) -> str:
@@ -73,7 +74,17 @@ def verify_service_api_key(api_key: str | None) -> bool:
     return hmac.compare_digest(api_key, SERVICE_API_KEY)
 
 
-def current_identity(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
+def _extract_bearer_from_request(request: Request) -> str | None:
+    auth = request.headers.get("Authorization")
+    if auth and auth.lower().startswith("bearer "):
+        return auth.split(" ", maxsplit=1)[1]
+    return request.cookies.get("nexus_access_token")
+
+
+def current_identity(request: Request) -> Dict[str, Any]:
+    token = _extract_bearer_from_request(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing access token")
     try:
         return verify_token(token, expected_type="access")
     except ValueError as exc:

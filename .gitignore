@@ -1,0 +1,5 @@
+.secrets/
+app/data/
+*.pyc
+__pycache__/
+

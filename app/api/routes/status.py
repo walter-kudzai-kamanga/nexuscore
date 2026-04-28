@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.core.kafka_producer import TOPICS, kafka_observability_metrics, send_event
-from app.core.security import require_roles, verify_service_api_key, verify_token
+from app.core.security import require_roles, verify_service_api_key
 from app.services.healing_engine import evaluate_health
 from app.services.registry import (
     detect_offline_services,
@@ -126,14 +126,7 @@ def logs(
 
 
 @router.get("/events/stream")
-async def event_stream(access_token: str = Query(...)) -> StreamingResponse:
-    try:
-        identity = verify_token(access_token, expected_type="access")
-    except ValueError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-    if identity.get("role") not in {"admin", "operator", "developer"}:
-        raise HTTPException(status_code=403, detail="Insufficient role permissions")
-
+async def event_stream(_: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer"))) -> StreamingResponse:
     async def generator():
         with store.events.subscribe() as queue:
             snapshot = get_dashboard_state()

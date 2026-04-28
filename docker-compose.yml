@@ -32,7 +32,21 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       DATABASE_URL: postgresql+psycopg2://nexus:nexus@postgres:5432/nexuscore
-      NEXUS_SERVICE_API_KEY: nexus-service-key
-      NEXUS_SECRET_KEY: dev-secret-change-me
+      NEXUS_SERVICE_API_KEY_FILE: /run/secrets/nexus_service_api_key
+      NEXUS_SECRET_KEY_FILE: /run/secrets/nexus_secret_key
+      NEXUS_BOOTSTRAP_USERS_JSON_FILE: /run/secrets/nexus_bootstrap_users_json
+      NEXUS_COOKIE_SECURE: "false"
     depends_on: [kafka, postgres]
+    secrets:
+      - nexus_service_api_key
+      - nexus_secret_key
+      - nexus_bootstrap_users_json
+
+secrets:
+  nexus_service_api_key:
+    file: .secrets/nexus_service_api_key.txt
+  nexus_secret_key:
+    file: .secrets/nexus_secret_key.txt
+  nexus_bootstrap_users_json:
+    file: .secrets/nexus_bootstrap_users_json.json
 

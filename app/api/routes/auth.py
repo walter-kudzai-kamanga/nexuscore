@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 
+from app.core.config import get_env_or_file
 from app.core.security import (
+    ACCESS_TTL_SECONDS,
+    COOKIE_SECURE,
     REFRESH_TTL_SECONDS,
     create_access_token,
     create_refresh_token,
@@ -21,8 +25,29 @@ from app.services.state_store import store
 router = APIRouter()
 
 
+def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    response.set_cookie(
+        key="nexus_access_token",
+        value=access_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="strict",
+        max_age=ACCESS_TTL_SECONDS,
+        path="/",
+    )
+    response.set_cookie(
+        key="nexus_refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="strict",
+        max_age=REFRESH_TTL_SECONDS,
+        path="/api/auth",
+    )
+
+
 @router.post("/auth/login")
-def login(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+def login(payload: Dict[str, Any] = Body(...), response: Response = None) -> Dict[str, Any]:
     username = payload.get("username", "")
     password = payload.get("password", "")
     user = store.get_user(username)
@@ -37,6 +62,8 @@ def login(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         hashlib.sha256(refresh_token.encode("utf-8")).hexdigest(),
         (datetime.now(timezone.utc) + timedelta(seconds=REFRESH_TTL_SECONDS)).isoformat(),
     )
+    if response is not None:
+        _set_auth_cookies(response, access_token, refresh_token)
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
@@ -47,13 +74,18 @@ def login(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
 
 
 @router.post("/auth/token")
-def token(form_data: OAuth2PasswordRequestForm = Depends()) -> Dict[str, Any]:
-    return login({"username": form_data.username, "password": form_data.password})
+def token(form_data: OAuth2PasswordRequestForm = Depends(), response: Response = None) -> Dict[str, Any]:
+    return login({"username": form_data.username, "password": form_data.password}, response=response)
 
 
 @router.post("/auth/refresh")
-def refresh(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
-    refresh_token = payload.get("refresh_token", "")
+def refresh(
+    payload: Dict[str, Any] | None = Body(default=None),
+    request: Request = None,
+    response: Response = None,
+) -> Dict[str, Any]:
+    body = payload or {}
+    refresh_token = body.get("refresh_token") or (request.cookies.get("nexus_refresh_token") if request else "")
     if not refresh_token:
         raise HTTPException(status_code=400, detail="refresh_token is required")
     try:
@@ -77,30 +109,38 @@ def refresh(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         hashlib.sha256(next_refresh.encode("utf-8")).hexdigest(),
         (datetime.now(timezone.utc) + timedelta(seconds=REFRESH_TTL_SECONDS)).isoformat(),
     )
+    if response is not None:
+        _set_auth_cookies(response, access_token, next_refresh)
     return {"access_token": access_token, "refresh_token": next_refresh, "token_type": "bearer", "expires_in": 900}
 
 
 @router.post("/auth/logout")
-def logout(identity: Dict[str, Any] = Depends(current_identity)) -> Dict[str, Any]:
+def logout(response: Response, identity: Dict[str, Any] = Depends(current_identity)) -> Dict[str, Any]:
     store.revoke_user_refresh_tokens(identity["sub"])
+    response.delete_cookie("nexus_access_token", path="/")
+    response.delete_cookie("nexus_refresh_token", path="/api/auth")
     return {"ok": True}
 
 
 @router.get("/auth/me")
 def me(authorization: str | None = Header(default=None), identity: Dict[str, Any] = Depends(current_identity)) -> Dict[str, Any]:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="Missing bearer token")
     return {"user": identity.get("sub"), "role": identity.get("role"), "exp": identity.get("exp")}
 
 
 @router.post("/auth/bootstrap")
 def bootstrap_users() -> Dict[str, Any]:
-    defaults = {
-        "admin": ("admin123", "admin"),
-        "operator": ("operator123", "operator"),
-        "developer": ("developer123", "developer"),
-    }
-    for username, (password, role) in defaults.items():
+    raw = get_env_or_file("NEXUS_BOOTSTRAP_USERS_JSON", default="{}") or "{}"
+    try:
+        users = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"Invalid NEXUS_BOOTSTRAP_USERS_JSON: {exc}") from exc
+    created: list[str] = []
+    for username, config in users.items():
+        password = config.get("password")
+        role = config.get("role")
+        if not password or not role:
+            continue
         store.upsert_user(username, hash_password(password), role, is_active=True)
-    return {"ok": True, "users": list(defaults.keys())}
+        created.append(username)
+    return {"ok": True, "users": created}
 

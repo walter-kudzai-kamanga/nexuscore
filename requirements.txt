@@ -8,3 +8,4 @@ httpx
 SQLAlchemy
 psycopg2-binary
 PyJWT
+alembic
