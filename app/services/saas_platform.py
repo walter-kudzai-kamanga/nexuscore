@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
@@ -93,6 +94,19 @@ def init_saas_schema() -> None:
             created_at TEXT NOT NULL
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS compliance_audit_archive (
+            id INTEGER PRIMARY KEY,
+            tenant_id TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            prev_hash TEXT NOT NULL,
+            entry_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            archived_at TEXT NOT NULL
+        )
+        """,
     ]
     with store.engine.begin() as conn:
         for stmt in statements:
@@ -102,6 +116,62 @@ def init_saas_schema() -> None:
             elif store.dialect == "postgresql":
                 normalized = normalized.replace("id INTEGER PRIMARY KEY,", "id BIGSERIAL PRIMARY KEY,")
             conn.execute(text(normalized))
+        if store.dialect == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS compliance_audit_no_update
+                    BEFORE UPDATE ON compliance_audit
+                    BEGIN
+                        SELECT RAISE(ABORT, 'compliance_audit is immutable');
+                    END;
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS compliance_audit_no_delete
+                    BEFORE DELETE ON compliance_audit
+                    BEGIN
+                        SELECT RAISE(ABORT, 'compliance_audit is immutable');
+                    END;
+                    """
+                )
+            )
+        elif store.dialect == "postgresql":
+            conn.execute(
+                text(
+                    """
+                    CREATE OR REPLACE FUNCTION prevent_compliance_audit_mutation()
+                    RETURNS trigger AS $$
+                    BEGIN
+                        RAISE EXCEPTION 'compliance_audit is immutable';
+                    END;
+                    $$ LANGUAGE plpgsql;
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    DROP TRIGGER IF EXISTS compliance_audit_no_update ON compliance_audit;
+                    CREATE TRIGGER compliance_audit_no_update
+                    BEFORE UPDATE ON compliance_audit
+                    FOR EACH ROW EXECUTE FUNCTION prevent_compliance_audit_mutation();
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    DROP TRIGGER IF EXISTS compliance_audit_no_delete ON compliance_audit;
+                    CREATE TRIGGER compliance_audit_no_delete
+                    BEFORE DELETE ON compliance_audit
+                    FOR EACH ROW EXECUTE FUNCTION prevent_compliance_audit_mutation();
+                    """
+                )
+            )
     if not get_tenant("default"):
         create_tenant("default", "Default Tenant", "starter")
 
@@ -177,6 +247,16 @@ def create_tenant(tenant_id: str, name: str, plan: str) -> Dict[str, Any]:
 
 def get_tenant(tenant_id: str) -> Dict[str, Any] | None:
     return store._fetchone("SELECT * FROM tenants WHERE tenant_id = :tenant_id", {"tenant_id": tenant_id})
+
+
+def verify_tenant_api_key(tenant_id: str, raw_api_key: str) -> bool:
+    row = store._fetchone(
+        "SELECT key_hash FROM tenant_api_keys WHERE tenant_id = :tenant_id ORDER BY created_at DESC LIMIT 1",
+        {"tenant_id": tenant_id},
+    )
+    if not row:
+        return False
+    return secrets.compare_digest(row["key_hash"], _hash(raw_api_key))
 
 
 def list_tenants() -> List[Dict[str, Any]]:
@@ -327,6 +407,25 @@ def execute_transaction_task(task_id: str) -> Dict[str, Any]:
     return {"task_id": task_id, "result": result}
 
 
+def list_queued_transaction_tasks(limit: int = 50) -> List[Dict[str, Any]]:
+    return store._fetchall(
+        """
+        SELECT * FROM transaction_healing_tasks
+        WHERE status = 'queued'
+        ORDER BY created_at ASC
+        LIMIT :limit
+        """,
+        {"limit": limit},
+    )
+
+
+def mark_transaction_task_running(task_id: str) -> None:
+    store._execute(
+        "UPDATE transaction_healing_tasks SET status = 'running', updated_at = :updated_at WHERE task_id = :task_id",
+        {"task_id": task_id, "updated_at": utc_iso()},
+    )
+
+
 def compliance_report(tenant_id: str) -> Dict[str, Any]:
     period_start = (_now().replace(hour=0, minute=0, second=0, microsecond=0)).isoformat()
     evidence_count = store._fetchone(
@@ -363,6 +462,34 @@ def export_evidence(tenant_id: str, limit: int = 500) -> Dict[str, Any]:
             break
         prev = row
     return {"tenant_id": tenant_id, "chain_valid": chain_valid, "items": rows}
+
+
+def archive_evidence(tenant_id: str, ids: Iterable[int]) -> Dict[str, Any]:
+    id_list = list(ids)
+    if not id_list:
+        return {"tenant_id": tenant_id, "archived": 0}
+    rows = store._fetchall(
+        f"SELECT * FROM compliance_audit WHERE tenant_id = :tenant_id AND id IN ({','.join(str(int(item)) for item in id_list)})",
+        {"tenant_id": tenant_id},
+    )
+    with store.engine.begin() as conn:
+        for row in rows:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO compliance_audit_archive (
+                        id, tenant_id, actor, action, payload_json, prev_hash, entry_hash, created_at, archived_at
+                    )
+                    VALUES (
+                        :id, :tenant_id, :actor, :action, :payload_json, :prev_hash, :entry_hash, :created_at, :archived_at
+                    )
+                    ON CONFLICT(id) DO NOTHING
+                    """
+                ),
+                {**row, "archived_at": utc_iso()},
+            )
+    append_audit(tenant_id, "compliance", "evidence.archived", {"ids": id_list})
+    return {"tenant_id": tenant_id, "archived": len(rows)}
 
 
 def billing_overview(tenant_id: str) -> Dict[str, Any]:

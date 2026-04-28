@@ -4,8 +4,11 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
-from app.core.security import enforce_csrf, require_roles
+from app.core.security import create_tenant_token, enforce_csrf, require_roles
+from app.core.tenant_security import require_tenant_scope
+from app.services.connector_runtime import execute_connector_action
 from app.services.saas_platform import (
+    archive_evidence,
     billing_overview,
     compliance_report,
     create_tenant,
@@ -138,6 +141,63 @@ def evidence_endpoint(
 @router.get("/billing/{tenant_id}")
 def billing_endpoint(tenant_id: str, _: Dict[str, Any] = Depends(require_roles("admin", "operator"))) -> Dict[str, Any]:
     return billing_overview(tenant_id)
+
+
+@router.post("/tenant/token")
+def tenant_token_endpoint(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = Depends(require_roles("admin", "operator")),
+) -> Dict[str, Any]:
+    enforce_csrf(request)
+    tenant_id = payload.get("tenant_id")
+    scopes = payload.get("scopes", ["connector:execute", "transactions:heal"])
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="tenant_id is required")
+    token = create_tenant_token(tenant_id, scopes=scopes)
+    return {"tenant_access_token": token, "tenant_id": tenant_id, "scopes": scopes}
+
+
+@router.post("/tenant/runtime/execute")
+async def tenant_execute_connector_endpoint(
+    payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_tenant_scope("connector:execute")),
+) -> Dict[str, Any]:
+    tenant_id = identity["tenant_id"]
+    connector_id = payload.get("connector_id")
+    if not connector_id:
+        raise HTTPException(status_code=400, detail="connector_id is required")
+    try:
+        return await execute_connector_action(tenant_id, connector_id, payload.get("payload", {}))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/tenant/transactions/heal")
+def tenant_queue_transaction_heal_endpoint(
+    payload: Dict[str, Any] = Body(...),
+    identity: Dict[str, Any] = Depends(require_tenant_scope("transactions:heal")),
+) -> Dict[str, Any]:
+    tenant_id = identity["tenant_id"]
+    workflow_type = payload.get("workflow_type")
+    reference_id = payload.get("reference_id")
+    if not workflow_type or not reference_id:
+        raise HTTPException(status_code=400, detail="workflow_type and reference_id are required")
+    return queue_transaction_workflow(tenant_id, workflow_type, reference_id, payload.get("payload", {}))
+
+
+@router.post("/compliance/evidence/{tenant_id}/archive")
+def archive_evidence_endpoint(
+    request: Request,
+    tenant_id: str,
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
+    enforce_csrf(request)
+    ids = payload.get("ids", [])
+    if not isinstance(ids, list):
+        raise HTTPException(status_code=400, detail="ids must be an array of integers")
+    return archive_evidence(tenant_id, ids=ids)
 
 
 @router.get("/architecture/blueprint")

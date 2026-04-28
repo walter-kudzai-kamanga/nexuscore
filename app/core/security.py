@@ -38,7 +38,13 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def _create_token(subject: str, role: str, token_type: str, expires_in_seconds: int) -> str:
+def _create_token(
+    subject: str,
+    role: str,
+    token_type: str,
+    expires_in_seconds: int,
+    extra_claims: Dict[str, Any] | None = None,
+) -> str:
     now = int(time.time())
     payload = {
         "sub": subject,
@@ -48,6 +54,8 @@ def _create_token(subject: str, role: str, token_type: str, expires_in_seconds: 
         "exp": now + expires_in_seconds,
         "jti": str(uuid.uuid4()),
     }
+    if extra_claims:
+        payload.update(extra_claims)
     return jwt.encode(payload, SECRET, algorithm=ALGORITHM)
 
 
@@ -57,6 +65,16 @@ def create_access_token(subject: str, role: str) -> str:
 
 def create_refresh_token(subject: str, role: str) -> str:
     return _create_token(subject, role, "refresh", REFRESH_TTL_SECONDS)
+
+
+def create_tenant_token(tenant_id: str, scopes: list[str] | None = None, expires_in_seconds: int = 3600) -> str:
+    return _create_token(
+        subject=tenant_id,
+        role="tenant",
+        token_type="tenant_access",
+        expires_in_seconds=expires_in_seconds,
+        extra_claims={"tenant_id": tenant_id, "scopes": scopes or ["connector:execute", "transactions:heal"]},
+    )
 
 
 def verify_token(token: str, expected_type: str | None = None) -> Dict[str, Any]:

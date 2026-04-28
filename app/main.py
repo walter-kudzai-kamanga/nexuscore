@@ -18,6 +18,7 @@ from app.services.healing_engine import healing_scheduler, monitoring_scheduler
 from app.services.registry import register_service
 from app.services.saas_platform import init_saas_schema
 from app.services.state_store import store
+from app.services.transaction_worker import transaction_healing_worker
 
 app = FastAPI(title="NexusCore")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -123,6 +124,7 @@ async def startup_event() -> None:
             asyncio.create_task(start_kafka_consumer()),
             asyncio.create_task(healing_scheduler()),
             asyncio.create_task(monitoring_scheduler()),
+            asyncio.create_task(transaction_healing_worker()),
         ]
     )
 
