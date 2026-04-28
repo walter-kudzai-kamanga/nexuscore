@@ -17,6 +17,7 @@ NEXUSCORE_URL = os.getenv("NEXUSCORE_URL", "http://localhost:8000/api")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "service.health")
 HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "10"))
 INSTANCE_ID = os.getenv("INSTANCE_ID", str(uuid4()))
+SERVICE_API_KEY = os.getenv("NEXUS_SERVICE_API_KEY", "nexus-service-key")
 
 app = FastAPI(title=f"{SERVICE_NAME} Template")
 
@@ -43,7 +44,11 @@ def current_metrics() -> Dict[str, Any]:
 
 async def register_with_nexuscore() -> None:
     async with httpx.AsyncClient(timeout=5.0) as client:
-        await client.post(f"{NEXUSCORE_URL}/services/register", json=current_metrics())
+        await client.post(
+            f"{NEXUSCORE_URL}/services/register",
+            json=current_metrics(),
+            headers={"x-api-key": SERVICE_API_KEY},
+        )
 
 
 async def emit_heartbeat() -> None:
@@ -51,7 +56,11 @@ async def emit_heartbeat() -> None:
         payload = current_metrics()
         payload["metadata"]["emitted_event"] = "service.heartbeat"
         async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(f"{NEXUSCORE_URL}/services/heartbeat", json=payload)
+            await client.post(
+                f"{NEXUSCORE_URL}/services/heartbeat",
+                json=payload,
+                headers={"x-api-key": SERVICE_API_KEY},
+            )
         await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
 
 

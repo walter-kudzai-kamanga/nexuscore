@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Any, Dict
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from app.core.kafka_producer import TOPICS, send_event
+from app.core.security import verify_service_api_key
+from app.services.healing_engine import evaluate_health
 from app.services.registry import (
     detect_offline_services,
     get_all_services,
@@ -36,20 +41,32 @@ def service(service_name: str) -> Dict[str, Any]:
 
 
 @router.post("/services/register")
-def register(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+def register(
+    payload: Dict[str, Any] = Body(...),
+    x_api_key: str | None = Header(default=None, convert_underscores=False),
+) -> Dict[str, Any]:
     service_name = payload.get("service") or payload.get("name")
     if not service_name:
         raise HTTPException(status_code=400, detail="service is required")
+    if not verify_service_api_key(x_api_key):
+        raise HTTPException(status_code=401, detail="Invalid service API key")
     record = register_service(service_name, payload)
     return {"ok": True, "service": record}
 
 
 @router.post("/services/heartbeat")
-async def heartbeat(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+async def heartbeat(
+    payload: Dict[str, Any] = Body(...),
+    x_api_key: str | None = Header(default=None, convert_underscores=False),
+) -> Dict[str, Any]:
     service_name = payload.get("service") or payload.get("name")
     if not service_name:
         raise HTTPException(status_code=400, detail="service is required")
-    record = update_service_state(service_name, payload)
+    if not verify_service_api_key(x_api_key):
+        raise HTTPException(status_code=401, detail="Invalid service API key")
+    payload["service"] = service_name
+    record = await evaluate_health(payload)
+    await send_event(TOPICS["service_health"], {"type": "service.heartbeat", "payload": record})
     await store.events.publish("service.heartbeat", record)
     return {"ok": True, "service": record}
 
@@ -95,9 +112,12 @@ async def event_stream() -> StreamingResponse:
     async def generator():
         with store.events.subscribe() as queue:
             snapshot = get_dashboard_state()
-            yield f"event: snapshot\ndata: {snapshot}\n\n"
+            yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
             while True:
-                message = await queue.get()
-                yield f"event: {message.event}\ndata: {message.payload}\n\n"
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"event: {message.event}\ndata: {json.dumps(message.payload)}\n\n"
+                except asyncio.TimeoutError:
+                    yield "event: ping\ndata: {}\n\n"
 
     return StreamingResponse(generator(), media_type="text/event-stream")

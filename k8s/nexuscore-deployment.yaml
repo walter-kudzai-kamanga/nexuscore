@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexuscore
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nexuscore
+  template:
+    metadata:
+      labels:
+        app: nexuscore
+    spec:
+      containers:
+        - name: nexuscore
+          image: nexuscore:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: NEXUS_SERVICE_API_KEY
+              value: nexus-service-key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexuscore
+spec:
+  selector:
+    app: nexuscore
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: ClusterIP
+

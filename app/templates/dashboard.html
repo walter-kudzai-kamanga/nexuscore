@@ -712,31 +712,69 @@ function updateClock(){
   document.getElementById('clock').textContent=`${now.getUTCFullYear()}-${pad(now.getUTCMonth()+1)}-${pad(now.getUTCDate())} // ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())} UTC`;
 }
 
-// LIVE SIMULATION
-function liveUpdate(){
-  // Update latency chart
-  latencyData.shift();
-  latencyData.push(8+Math.random()*20);
-  errorData.shift();
-  errorData.push(0.5+Math.random()*2);
-  renderCharts();
-  // Heal progress
-  actions.forEach(a=>{if(a.progress<100)a.progress=Math.min(100,a.progress+2);});
-  if(document.getElementById('tab-remediation').classList.contains('active'))renderActions();
-  // Flicker health values
-  svcs.forEach(s=>{if(s.status==='online'){const n=Math.floor(Math.random()*3)-1;s.health=Math.min(100,Math.max(70,s.health+n));}});
-  if(document.getElementById('tab-overview').classList.contains('active')){
-    document.querySelectorAll('.svc-card.online .pb-fill').forEach((el,i)=>{
-      if(svcs[i])el.style.width=svcs[i].health+'%';
-    });
-  }
+function mapService(s){
+  return {
+    name:(s.service||'unknown').toUpperCase(),
+    status:s.status||'unknown',
+    cpu:`${Math.round(Number(s.cpu||0))}%`,
+    mem:`${Math.round(Number(s.memory||0))}%`,
+    instances:Number(s.instances||1),
+    health:Math.max(0,Math.min(100,100-Math.round(Number(s.error_rate||0)*8)-Math.round(Number(s.latency||0)/20))),
+  };
+}
+function applySnapshot(snapshot){
+  const summary=snapshot.summary||{};
+  const services=(snapshot.services||[]).map(mapService);
+  svcs.splice(0,svcs.length,...services);
+  document.getElementById('hm-online').textContent=summary.online??0;
+  document.getElementById('hm-healing').textContent=summary.healing??0;
+  document.getElementById('hm-offline').textContent=summary.offline??0;
+  document.getElementById('health-pct').textContent=`${summary.health_percentage??0}%`;
+  document.getElementById('leg-online').textContent=summary.online??0;
+  document.getElementById('leg-offline').textContent=summary.offline??0;
+  document.getElementById('stat-latency').textContent=`${Math.round(Number(summary.avg_latency||0))}ms`;
+  document.getElementById('stat-heals').textContent=summary.heals_today??0;
+  const topicRows=(snapshot.kafka?.topics||[]).map(t=>({name:t.name.toUpperCase(),partitions:t.partitions,msgs:`${t.throughput}/s`,lag:String(t.lag),type:'monitoring'}));
+  kafkaTopics.splice(0,kafkaTopics.length,...topicRows);
+  const healRows=(snapshot.healing||[]).slice(0,8).map(h=>({
+    type:h.action==='scale_up'?'scale':h.action==='reroute'?'route':'restart',
+    icon:h.action.slice(0,3).toUpperCase(),
+    label:h.action.toUpperCase(),
+    svc:h.service.toUpperCase(),
+    desc:h.reason,
+    time:(h.created_at||'').slice(11,19),
+    progress:100,
+    color:h.action==='scale_up'?'var(--cyan)':h.action==='reroute'?'var(--purple)':'var(--red)'
+  }));
+  actions.splice(0,actions.length,...healRows);
+  const logRows=(snapshot.logs||[]).slice(0,12).map(l=>({type:l.level==='ERROR'?'var(--red)':l.level==='WARN'?'var(--amber)':'var(--green)',msg:`${(l.service||'').toUpperCase()} ${l.level}`,detail:l.message,time:(l.created_at||'').slice(11,19)}));
+  logs.splice(0,logs.length,...logRows);
+  renderSvcs();renderLog();renderKafka();renderRemediation();
+}
+async function refreshSnapshot(){
+  try{
+    const res=await fetch('/api/dashboard/state');
+    if(!res.ok) return;
+    const snapshot=await res.json();
+    applySnapshot(snapshot);
+  }catch(_e){}
+}
+function connectLiveStream(){
+  const source=new EventSource('/api/events/stream');
+  source.addEventListener('snapshot',ev=>{try{applySnapshot(JSON.parse(ev.data));}catch(_e){}});
+  source.addEventListener('service.heartbeat',()=>refreshSnapshot());
+  source.addEventListener('service.offline',()=>refreshSnapshot());
+  source.addEventListener('healing.executed',()=>refreshSnapshot());
+  source.onerror=()=>{source.close();setTimeout(connectLiveStream,3000);};
 }
 
 // INIT
 renderSvcs();renderArcs();renderLog();renderKafka();renderAnomalies();renderCharts();renderRemediation();
 updateClock();
+refreshSnapshot();
+connectLiveStream();
 setInterval(updateClock,1000);
-setInterval(liveUpdate,2000);
+setInterval(refreshSnapshot,10000);
 
 // Animate flow lines CSS
 const style=document.createElement('style');
