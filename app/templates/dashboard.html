@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+<style>
+:root{--bg:#020b12;--bg2:#040f1a;--panel:rgba(0,210,255,0.04);--border:rgba(0,210,255,0.18);--cyan:#00d2ff;--cyan-dim:rgba(0,210,255,0.5);--green:#00ff9d;--amber:#ffb300;--red:#ff3a3a;--purple:#b44fff;--text:#c8eeff;--text-dim:#4a7a99}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);font-family:'Rajdhani',sans-serif;color:var(--text);min-height:100vh;overflow-x:hidden;position:relative}
+body::before{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.07) 2px,rgba(0,0,0,0.07) 4px);pointer-events:none;z-index:1000}
+body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,210,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,210,255,0.03) 1px,transparent 1px);background-size:50px 50px;pointer-events:none;z-index:0}
+.app{position:relative;z-index:1;padding:12px;display:flex;flex-direction:column;gap:10px}
+/* TICKER */
+.ticker{height:26px;overflow:hidden;border:1px solid var(--border);background:rgba(0,0,0,0.4);display:flex;align-items:center}
+.ticker-label{flex-shrink:0;padding:0 10px;font-family:'Orbitron',monospace;font-size:0.52rem;font-weight:700;color:#020b12;background:var(--cyan);height:100%;display:flex;align-items:center;letter-spacing:.1em}
+.ticker-track{flex:1;overflow:hidden}
+.ticker-content{white-space:nowrap;font-family:'Share Tech Mono',monospace;font-size:0.6rem;color:var(--text-dim);animation:ticker-scroll 35s linear infinite;display:inline-block;padding-left:20px}
+.ticker-content .hi{color:var(--green)}.ticker-content .warn{color:var(--amber)}.ticker-content .err{color:var(--red)}
+@keyframes ticker-scroll{from{transform:translateX(100%)}to{transform:translateX(-100%)}}
+/* HEADER */
+.header{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:20px;padding:12px 20px;border:1px solid var(--border);background:var(--panel);clip-path:polygon(0 0,calc(100% - 20px) 0,100% 20px,100% 100%,20px 100%,0 calc(100% - 20px));position:relative;overflow:hidden}
+.header::before{content:'';position:absolute;top:0;left:-100%;right:-100%;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);animation:scan-h 4s linear infinite}
+@keyframes scan-h{0%{left:-100%}100%{left:200%}}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-logo{width:42px;height:42px;border:2px solid var(--cyan);border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;animation:pulse-ring 2s ease-in-out infinite}
+.brand-logo::after{content:'';position:absolute;inset:4px;border:1px solid rgba(0,210,255,0.3);border-radius:50%;animation:spin 8s linear infinite;border-top-color:var(--cyan)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse-ring{0%,100%{box-shadow:0 0 18px rgba(0,210,255,0.5)}50%{box-shadow:0 0 30px rgba(0,210,255,0.9)}}
+.brand-logo svg{width:18px;height:18px}
+.brand-text h1{font-family:'Orbitron',monospace;font-size:1.05rem;font-weight:900;letter-spacing:.25em;color:var(--cyan);line-height:1}
+.brand-text span{font-family:'Share Tech Mono',monospace;font-size:0.6rem;color:var(--text-dim);letter-spacing:.15em}
+.header-metrics{display:flex;gap:28px;justify-content:center}
+.h-metric{text-align:center}
+.h-metric-val{font-family:'Orbitron',monospace;font-size:1.3rem;font-weight:700;line-height:1}
+.h-metric-label{font-size:0.58rem;color:var(--text-dim);letter-spacing:.12em;text-transform:uppercase;margin-top:3px}
+.header-status{display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.sys-status{display:flex;align-items:center;gap:7px;font-family:'Share Tech Mono',monospace;font-size:0.68rem;color:var(--green)}
+.sys-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:blink 1.4s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+.sys-time{font-family:'Share Tech Mono',monospace;font-size:0.62rem;color:var(--text-dim)}
+/* NAV TABS */
+.nav-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border)}
+.tab-btn{font-family:'Orbitron',monospace;font-size:0.56rem;font-weight:700;letter-spacing:.12em;padding:8px 16px;background:transparent;border:none;color:var(--text-dim);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .2s,border-color .2s;text-transform:uppercase}
+.tab-btn.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+.tab-btn:hover:not(.active){color:var(--text)}
+/* PANEL */
+.panel{border:1px solid var(--border);background:var(--panel);padding:14px;position:relative;overflow:hidden}
+.panel-title{font-family:'Orbitron',monospace;font-size:0.58rem;font-weight:700;letter-spacing:.18em;color:var(--cyan-dim);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.panel-title::before{content:'';width:10px;height:1px;background:var(--cyan)}
+/* TAB PAGES */
+.tab-page{display:none}.tab-page.active{display:block}
+/* OVERVIEW GRID */
+.overview-grid{display:grid;grid-template-columns:260px 1fr 280px;gap:10px}
+/* RADAR */
+.radar-wrap{position:relative;width:200px;height:200px;margin:0 auto 14px}
+.radar-svg{width:100%;height:100%}
+@keyframes radar-sweep{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.radar-sweep-group{transform-origin:100px 100px;animation:radar-sweep 4s linear infinite}
+.blip{animation:blip-fade 4s linear infinite}
+.blip:nth-child(2){animation-delay:1.3s}.blip:nth-child(3){animation-delay:2.7s}.blip:nth-child(4){animation-delay:.8s}.blip:nth-child(5){animation-delay:3.1s}
+@keyframes blip-fade{0%{opacity:0;r:2}10%{opacity:1;r:4}80%{opacity:.4}100%{opacity:0}}
+.radar-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none}
+.radar-pct{font-family:'Orbitron',monospace;font-size:1.8rem;font-weight:900;color:var(--green);line-height:1}
+.radar-lbl{font-family:'Share Tech Mono',monospace;font-size:0.52rem;color:var(--text-dim);letter-spacing:.15em}
+.legend-item{display:flex;align-items:center;justify-content:space-between;font-size:0.7rem;margin-bottom:7px}
+.legend-dot-wrap{display:flex;align-items:center;gap:7px}
+.ldot{width:6px;height:6px;border-radius:50%}
+/* SERVICES GRID */
+.svc-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.svc-card{border:1px solid rgba(0,210,255,0.1);background:rgba(0,0,0,0.3);padding:10px;position:relative;overflow:hidden;cursor:pointer;transition:border-color .3s,background .3s;clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px)}
+.svc-card:hover{border-color:rgba(0,210,255,0.35);background:rgba(0,210,255,0.05)}
+.svc-card::before{content:'';position:absolute;top:0;left:0;width:100%;height:2px}
+.svc-card.online::before{background:var(--green)}.svc-card.starting::before{background:var(--cyan);animation:spulse 1s ease-in-out infinite}.svc-card.healing::before{background:var(--amber);animation:spulse .8s ease-in-out infinite}.svc-card.offline::before{background:var(--red)}.svc-card.degraded::before{background:var(--purple)}
+@keyframes spulse{0%,100%{opacity:1}50%{opacity:.3}}
+.svc-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.svc-name{font-family:'Orbitron',monospace;font-size:0.52rem;font-weight:700;letter-spacing:.08em;line-height:1.3}
+.badge{font-family:'Share Tech Mono',monospace;font-size:0.48rem;padding:2px 5px;border-radius:2px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+.b-online{background:rgba(0,255,157,.12);color:var(--green);border:1px solid rgba(0,255,157,.3)}
+.b-starting{background:rgba(0,210,255,.12);color:var(--cyan);border:1px solid rgba(0,210,255,.3)}
+.b-healing{background:rgba(255,179,0,.12);color:var(--amber);border:1px solid rgba(255,179,0,.3)}
+.b-offline{background:rgba(255,58,58,.12);color:var(--red);border:1px solid rgba(255,58,58,.3)}
+.b-degraded{background:rgba(180,79,255,.12);color:var(--purple);border:1px solid rgba(180,79,255,.3)}
+.svc-metrics{display:flex;gap:8px;margin-bottom:6px}
+.svc-m{flex:1}.svc-m-l{font-size:0.52rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:1px}.svc-m-v{font-family:'Share Tech Mono',monospace;font-size:0.7rem}
+.pb{height:3px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;margin-top:5px}
+.pb-fill{height:100%;border-radius:2px;transition:width 1s ease}
+.pf-green{background:var(--green)}.pf-cyan{background:var(--cyan);animation:pf-a 1.5s ease-in-out infinite}.pf-amber{background:var(--amber)}.pf-red{background:var(--red)}.pf-purple{background:var(--purple)}
+@keyframes pf-a{0%,100%{opacity:.4}50%{opacity:1}}
+/* ARC METERS */
+.arc-list{display:flex;flex-direction:column;gap:12px}
+.arc-row{display:flex;align-items:center;gap:10px}
+.arc-svg-w{width:58px;height:58px;flex-shrink:0;position:relative}
+.arc-val{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Orbitron',monospace;font-size:0.6rem;font-weight:700;text-align:center}
+.arc-info{flex:1}.arc-lbl{font-family:'Orbitron',monospace;font-size:0.52rem;letter-spacing:.1em;color:var(--text-dim);text-transform:uppercase;margin-bottom:3px}.arc-sub{font-family:'Share Tech Mono',monospace;font-size:0.62rem}
+.arc-bar{height:3px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:5px;overflow:hidden}
+.arc-bar-fill{height:100%;border-radius:2px}
+/* LOG */
+.log-list{display:flex;flex-direction:column;max-height:280px;overflow-y:auto}
+.log-list::-webkit-scrollbar{width:3px}.log-list::-webkit-scrollbar-thumb{background:var(--cyan-dim);border-radius:2px}
+.log-item{display:grid;grid-template-columns:auto 1fr auto;gap:7px;align-items:flex-start;padding:7px 0;border-bottom:1px solid rgba(0,210,255,0.06);font-size:0.68rem}
+.log-dot{width:6px;height:6px;border-radius:50%;margin-top:3px;flex-shrink:0}
+.log-msg{color:var(--text);line-height:1.4;font-family:'Share Tech Mono',monospace;font-size:0.6rem}
+.log-msg span{display:block;color:var(--text-dim);font-size:0.54rem;margin-top:1px}
+.log-time{font-family:'Share Tech Mono',monospace;font-size:0.54rem;color:var(--text-dim);white-space:nowrap}
+/* BOTTOM STATS */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}
+.stat-box{padding:10px 14px;border:1px solid var(--border);background:var(--panel);display:flex;align-items:center;gap:12px;clip-path:polygon(7px 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%,0 7px)}
+.stat-icon{width:32px;height:32px;border:1px solid rgba(0,210,255,.2);display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:3px}
+.stat-icon svg{width:16px;height:16px}
+.stat-val{font-family:'Orbitron',monospace;font-size:1rem;font-weight:700;line-height:1}
+.stat-lbl{font-size:0.6rem;color:var(--text-dim);letter-spacing:.1em;text-transform:uppercase;margin-top:2px}
+/* ===== KAFKA TAB ===== */
+.kafka-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kafka-topics{display:flex;flex-direction:column;gap:6px}
+.k-topic{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border:1px solid rgba(0,210,255,0.1);background:rgba(0,0,0,.3);font-family:'Share Tech Mono',monospace;font-size:0.65rem;cursor:pointer;transition:background .2s}
+.k-topic:hover{background:rgba(0,210,255,.06)}
+.k-topic-name{color:var(--cyan)}
+.k-topic-meta{display:flex;gap:12px}
+.k-m{font-size:0.6rem;color:var(--text-dim)}
+.k-m span{color:var(--text)}
+.k-flow{display:flex;flex-direction:column;gap:8px}
+.k-flow-item{display:flex;align-items:center;gap:8px;font-size:0.68rem}
+.k-flow-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.k-flow-line{flex:1;height:1px;position:relative;overflow:hidden}
+.k-flow-line::after{content:'';position:absolute;top:0;left:-100%;width:50%;height:1px;animation:flow-move 2s linear infinite}
+.event-counter{font-family:'Orbitron',monospace;font-size:0.7rem;font-weight:700;min-width:50px;text-align:right}
+/* ===== ANOMALY TAB ===== */
+.anomaly-grid{display:grid;grid-template-columns:1fr 280px;gap:10px}
+.chart-area{position:relative;height:220px;border:1px solid rgba(0,210,255,.08);background:rgba(0,0,0,.2);overflow:hidden}
+.chart-svg{width:100%;height:100%}
+.anomaly-list{display:flex;flex-direction:column;gap:6px}
+.anomaly-item{padding:8px 12px;border:1px solid rgba(0,210,255,.1);background:rgba(0,0,0,.3);position:relative;overflow:hidden}
+.anomaly-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
+.a-critical::before{background:var(--red)}.a-warning::before{background:var(--amber)}.a-info::before{background:var(--cyan)}
+.a-svc{font-family:'Orbitron',monospace;font-size:0.55rem;font-weight:700;letter-spacing:.08em;margin-bottom:3px}
+.a-desc{font-family:'Share Tech Mono',monospace;font-size:0.6rem;color:var(--text-dim);line-height:1.4}
+.a-badge{display:inline-block;font-family:'Share Tech Mono',monospace;font-size:0.5rem;padding:2px 6px;border-radius:2px;margin-top:4px}
+.ab-critical{background:rgba(255,58,58,.12);color:var(--red);border:1px solid rgba(255,58,58,.3)}
+.ab-warning{background:rgba(255,179,0,.12);color:var(--amber);border:1px solid rgba(255,179,0,.3)}
+.ab-info{background:rgba(0,210,255,.12);color:var(--cyan);border:1px solid rgba(0,210,255,.3)}
+/* ===== REMEDIATION TAB ===== */
+.remed-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.action-list{display:flex;flex-direction:column;gap:6px}
+.action-item{padding:10px 12px;border:1px solid rgba(0,210,255,.1);background:rgba(0,0,0,.3);display:flex;align-items:flex-start;gap:10px}
+.action-icon{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:'Orbitron',monospace;font-size:0.6rem;font-weight:700}
+.ai-restart{background:rgba(255,58,58,.15);color:var(--red);border:1px solid rgba(255,58,58,.3)}
+.ai-scale{background:rgba(0,210,255,.15);color:var(--cyan);border:1px solid rgba(0,210,255,.3)}
+.ai-route{background:rgba(180,79,255,.15);color:var(--purple);border:1px solid rgba(180,79,255,.3)}
+.ai-patch{background:rgba(255,179,0,.15);color:var(--amber);border:1px solid rgba(255,179,0,.3)}
+.action-body{flex:1}
+.action-title{font-family:'Orbitron',monospace;font-size:0.55rem;font-weight:700;letter-spacing:.08em;margin-bottom:3px}
+.action-desc{font-family:'Share Tech Mono',monospace;font-size:0.6rem;color:var(--text-dim);line-height:1.4}
+.action-time{font-family:'Share Tech Mono',monospace;font-size:0.54rem;color:var(--text-dim);white-space:nowrap}
+.action-progress{height:2px;background:rgba(255,255,255,.06);border-radius:1px;overflow:hidden;margin-top:6px}
+.ap-fill{height:100%;border-radius:1px;transition:width .5s}
+.state-machine{padding:14px}
+.sm-title{font-family:'Orbitron',monospace;font-size:0.58rem;font-weight:700;letter-spacing:.15em;color:var(--cyan-dim);margin-bottom:14px;text-transform:uppercase}
+.sm-states{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.sm-state{text-align:center;flex:1}
+.sm-state-circle{width:44px;height:44px;border-radius:50%;border:2px solid rgba(0,210,255,.2);display:flex;align-items:center;justify-content:center;margin:0 auto 6px;font-family:'Orbitron',monospace;font-size:0.45rem;font-weight:700;letter-spacing:.06em;transition:all .3s}
+.sm-state-circle.active{border-color:var(--cyan);background:rgba(0,210,255,.1)}
+.sm-state-circle.done{border-color:var(--green);background:rgba(0,255,157,.1);color:var(--green)}
+.sm-state-circle.error{border-color:var(--red);background:rgba(255,58,58,.1);color:var(--red)}
+.sm-state-name{font-family:'Share Tech Mono',monospace;font-size:0.54rem;color:var(--text-dim)}
+.sm-arrow{color:rgba(0,210,255,.3);font-size:0.8rem;flex-shrink:0;margin-top:-18px}
+.sm-log{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow-y:auto}
+.sm-log-item{font-family:'Share Tech Mono',monospace;font-size:0.58rem;color:var(--text-dim);padding:4px 0;border-bottom:1px solid rgba(0,210,255,.05);display:flex;gap:8px}
+.sm-log-item .hi{color:var(--green)}.sm-log-item .warn{color:var(--amber)}.sm-log-item .err{color:var(--red)}
+.sm-log-time{color:rgba(0,210,255,.4);flex-shrink:0}
+/* ===== SIMULATE PANEL ===== */
+.sim-panel{padding:12px;border:1px solid rgba(255,58,58,.2);background:rgba(255,58,58,.04)}
+.sim-title{font-family:'Orbitron',monospace;font-size:0.56rem;font-weight:700;letter-spacing:.15em;color:var(--red);margin-bottom:10px;text-transform:uppercase;display:flex;align-items:center;gap:7px}
+.sim-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.sim-btn{font-family:'Share Tech Mono',monospace;font-size:0.6rem;padding:8px 10px;border:1px solid rgba(255,58,58,.3);background:rgba(255,58,58,.08);color:var(--red);cursor:pointer;text-align:left;transition:background .2s;clip-path:polygon(5px 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%,0 5px)}
+.sim-btn:hover{background:rgba(255,58,58,.15)}
+.sim-btn span{display:block;font-family:'Orbitron',monospace;font-size:0.48rem;font-weight:700;letter-spacing:.08em;margin-bottom:3px}
+/* NOTIFICATION TOAST */
+.toast{position:fixed;top:16px;right:16px;background:rgba(4,15,26,.95);border:1px solid var(--border);padding:12px 16px;font-family:'Share Tech Mono',monospace;font-size:0.65rem;color:var(--text);z-index:9999;max-width:280px;clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);transform:translateX(320px);transition:transform .3s ease;pointer-events:none}
+.toast.show{transform:translateX(0)}
+.toast-title{font-family:'Orbitron',monospace;font-size:0.56rem;font-weight:700;letter-spacing:.1em;margin-bottom:4px}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- TICKER -->
+<div class="ticker">
+  <div class="ticker-label">LIVE FEED</div>
+  <div class="ticker-track">
+    <div class="ticker-content" id="ticker-text">
+      <span class="hi">PAYMENT-SVC</span> auto-healed :: latency 12ms &nbsp;|&nbsp;
+      <span class="warn">FRAUD-DETECT</span> memory spike 87% :: scaling &nbsp;|&nbsp;
+      <span class="hi">AUTH-SERVICE</span> replica x3 healthy &nbsp;|&nbsp;
+      <span class="err">LEDGER-SVC</span> pod crash :: rollback v2.3.1 &nbsp;|&nbsp;
+      <span class="hi">CORE-BANKING</span> DB pool restored 340ms &nbsp;|&nbsp;
+      <span class="warn">KYC-WORKER</span> queue depth 2400 :: 2 workers spawned &nbsp;|&nbsp;
+      <span class="hi">NOTIFICATION-SVC</span> circuit breaker CLOSED
+    </div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="brand">
+    <div class="brand-logo">
+      <svg viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="3" fill="#00d2ff"/>
+        <path d="M10 2L10 5M10 15L10 18M2 10L5 10M15 10L18 10" stroke="#00d2ff" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M4.1 4.1L6.2 6.2M13.8 13.8L15.9 15.9M4.1 15.9L6.2 13.8M13.8 6.2L15.9 4.1" stroke="#00d2ff" stroke-width="1" stroke-linecap="round" opacity=".5"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1>NEXUS CORE</h1>
+      <span>SELF-HEALING MICROSERVICES // BANK INTEGRATION LAYER v3.2</span>
+    </div>
+  </div>
+  <div class="header-metrics">
+    <div class="h-metric"><div class="h-metric-val" style="color:var(--green)" id="hm-online">24</div><div class="h-metric-label">Online</div></div>
+    <div class="h-metric"><div class="h-metric-val" style="color:var(--cyan)" id="hm-starting">3</div><div class="h-metric-label">Starting</div></div>
+    <div class="h-metric"><div class="h-metric-val" style="color:var(--amber)" id="hm-healing">2</div><div class="h-metric-label">Healing</div></div>
+    <div class="h-metric"><div class="h-metric-val" style="color:var(--red)" id="hm-offline">1</div><div class="h-metric-label">Offline</div></div>
+    <div class="h-metric"><div class="h-metric-val" style="color:var(--text)">30</div><div class="h-metric-label">Total</div></div>
+  </div>
+  <div class="header-status">
+    <div class="sys-status"><div class="sys-dot"></div>NEXUS ENGINE ACTIVE</div>
+    <div class="sys-time" id="clock">2026-04-28 // 07:34:01 UTC</div>
+  </div>
+</header>
+
+<!-- NAV TABS -->
+<div class="nav-tabs">
+  <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
+  <button class="tab-btn" onclick="switchTab('kafka')">Kafka Events</button>
+  <button class="tab-btn" onclick="switchTab('anomaly')">Anomaly Detection</button>
+  <button class="tab-btn" onclick="switchTab('remediation')">Remediation Engine</button>
+  <button class="tab-btn" onclick="switchTab('simulate')">Chaos Simulator</button>
+</div>
+
+<!-- ===== OVERVIEW TAB ===== -->
+<div class="tab-page active" id="tab-overview">
+  <div class="overview-grid">
+    <!-- RADAR -->
+    <div class="panel" style="clip-path:polygon(14px 0,100% 0,100% 100%,0 100%,0 14px)">
+      <div class="panel-title">Health Radar</div>
+      <div class="radar-wrap">
+        <svg class="radar-svg" viewBox="0 0 200 200">
+          <circle cx="100" cy="100" r="90" fill="none" stroke="rgba(0,210,255,0.07)" stroke-width="1"/>
+          <circle cx="100" cy="100" r="68" fill="none" stroke="rgba(0,210,255,0.09)" stroke-width="1"/>
+          <circle cx="100" cy="100" r="46" fill="none" stroke="rgba(0,210,255,0.11)" stroke-width="1"/>
+          <circle cx="100" cy="100" r="23" fill="none" stroke="rgba(0,210,255,0.13)" stroke-width="1"/>
+          <line x1="10" y1="100" x2="190" y2="100" stroke="rgba(0,210,255,0.06)" stroke-width="1"/>
+          <line x1="100" y1="10" x2="100" y2="190" stroke="rgba(0,210,255,0.06)" stroke-width="1"/>
+          <circle cx="100" cy="100" r="92" fill="none" stroke="rgba(0,210,255,0.28)" stroke-width="1.5"/>
+          <defs><radialGradient id="sg" cx="50%" cy="50%"><stop offset="0%" stop-color="#00d2ff" stop-opacity=".14"/><stop offset="100%" stop-color="#00d2ff" stop-opacity="0"/></radialGradient></defs>
+          <g class="radar-sweep-group">
+            <path d="M100 100 L100 8 A92 92 0 0 1 192 100 Z" fill="url(#sg)" opacity=".7"/>
+            <line x1="100" y1="100" x2="100" y2="8" stroke="#00d2ff" stroke-width="1.5" opacity=".8"/>
+          </g>
+          <circle class="blip" cx="132" cy="65" r="4" fill="#00ff9d" opacity="0"/>
+          <circle class="blip" cx="70" cy="130" r="3" fill="#00ff9d" opacity="0"/>
+          <circle class="blip" cx="150" cy="122" r="4" fill="#ffb300" opacity="0"/>
+          <circle class="blip" cx="82" cy="62" r="3" fill="#00d2ff" opacity="0"/>
+          <circle class="blip" cx="120" cy="148" r="3" fill="#00ff9d" opacity="0"/>
+          <circle cx="100" cy="100" r="4" fill="#00d2ff" opacity=".8"/>
+        </svg>
+        <div class="radar-center">
+          <div class="radar-pct" id="health-pct">92%</div>
+          <div class="radar-lbl">HEALTH</div>
+        </div>
+      </div>
+      <div>
+        <div class="legend-item"><div class="legend-dot-wrap"><div class="ldot" style="background:var(--green)"></div><span>Online</span></div><span style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--green)" id="leg-online">24</span></div>
+        <div class="legend-item"><div class="legend-dot-wrap"><div class="ldot" style="background:var(--cyan)"></div><span>Starting</span></div><span style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--cyan)">3</span></div>
+        <div class="legend-item"><div class="legend-dot-wrap"><div class="ldot" style="background:var(--amber)"></div><span>Self-Healing</span></div><span style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--amber)">2</span></div>
+        <div class="legend-item"><div class="legend-dot-wrap"><div class="ldot" style="background:var(--purple)"></div><span>Degraded</span></div><span style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--purple)">0</span></div>
+        <div class="legend-item"><div class="legend-dot-wrap"><div class="ldot" style="background:var(--red)"></div><span>Offline</span></div><span style="font-family:'Orbitron',monospace;font-size:.7rem;color:var(--red)" id="leg-offline">1</span></div>
+      </div>
+    </div>
+    <!-- SERVICES GRID -->
+    <div class="panel" style="clip-path:polygon(14px 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%,0 14px)">
+      <div class="panel-title">Microservices Matrix</div>
+      <div class="svc-grid" id="svc-grid"></div>
+    </div>
+    <!-- RIGHT COLUMN -->
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <!-- ARC METERS -->
+      <div class="panel" style="clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,0 100%)">
+        <div class="panel-title">System Resources</div>
+        <div class="arc-list" id="arc-list"></div>
+      </div>
+      <!-- LOG -->
+      <div class="panel" style="clip-path:polygon(0 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%)">
+        <div class="panel-title">Healing Log</div>
+        <div class="log-list" id="log-list"></div>
+      </div>
+    </div>
+  </div>
+  <!-- BOTTOM STATS -->
+  <div class="stats-row">
+    <div class="stat-box">
+      <div class="stat-icon" style="border-color:rgba(0,255,157,.3)"><svg viewBox="0 0 20 20" fill="none"><path d="M3 10C3 6.13 6.13 3 10 3s7 3.13 7 7-3.13 7-7 7-7-3.13-7-7Z" stroke="#00ff9d" stroke-width="1.2"/><path d="M10 7v3l2 2" stroke="#00ff9d" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+      <div><div class="stat-val" style="color:var(--green)">99.97%</div><div class="stat-lbl">Uptime (30d)</div></div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-icon" style="border-color:rgba(0,210,255,.3)"><svg viewBox="0 0 20 20" fill="none"><path d="M2 14l4-8 4 5 3-3 5 6" stroke="#00d2ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div><div class="stat-val" style="color:var(--cyan)" id="stat-latency">14ms</div><div class="stat-lbl">Avg Latency</div></div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-icon" style="border-color:rgba(255,179,0,.3)"><svg viewBox="0 0 20 20" fill="none"><path d="M10 3l1.8 5.4h5.7L13 11.4l1.8 5.4L10 13.4l-4.8 3.4L7 11.4 2.5 8.4h5.7Z" stroke="#ffb300" stroke-width="1.2" stroke-linejoin="round"/></svg></div>
+      <div><div class="stat-val" style="color:var(--amber)" id="stat-heals">47</div><div class="stat-lbl">Heals Today</div></div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-icon" style="border-color:rgba(180,79,255,.3)"><svg viewBox="0 0 20 20" fill="none"><rect x="3" y="8" width="14" height="9" rx="1" stroke="#b44fff" stroke-width="1.2"/><path d="M7 8V6a3 3 0 0 1 6 0v2" stroke="#b44fff" stroke-width="1.2" stroke-linecap="round"/></svg></div>
+      <div><div class="stat-val" style="color:var(--purple)">TLS 1.3</div><div class="stat-lbl">Encryption</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== KAFKA TAB ===== -->
+<div class="tab-page" id="tab-kafka">
+  <div class="kafka-grid">
+    <div>
+      <div class="panel" style="margin-bottom:10px">
+        <div class="panel-title">Active Topics</div>
+        <div class="kafka-topics" id="kafka-topics"></div>
+      </div>
+    </div>
+    <div>
+      <div class="panel" style="margin-bottom:10px">
+        <div class="panel-title">Event Flow (Events/sec)</div>
+        <div class="k-flow" id="kafka-flow"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Consumer Groups</div>
+        <div id="kafka-consumers"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ANOMALY TAB ===== -->
+<div class="tab-page" id="tab-anomaly">
+  <div class="anomaly-grid">
+    <div>
+      <div class="panel" style="margin-bottom:10px">
+        <div class="panel-title">Latency Trend (ms) — Last 60s</div>
+        <div class="chart-area"><svg class="chart-svg" id="latency-chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Error Rate Trend (%) — Last 60s</div>
+        <div class="chart-area"><svg class="chart-svg" id="error-chart" viewBox="0 0 600 200" preserveAspectRatio="none"></svg></div>
+      </div>
+    </div>
+    <div>
+      <div class="panel">
+        <div class="panel-title">Active Anomalies</div>
+        <div class="anomaly-list" id="anomaly-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== REMEDIATION TAB ===== -->
+<div class="tab-page" id="tab-remediation">
+  <div class="remed-grid">
+    <div>
+      <div class="panel" style="margin-bottom:10px">
+        <div class="panel-title">Active Remediation Actions</div>
+        <div class="action-list" id="action-list"></div>
+      </div>
+    </div>
+    <div>
+      <div class="panel state-machine">
+        <div class="sm-title">Service State Machine</div>
+        <div class="sm-states" id="sm-states"></div>
+        <div class="panel-title" style="margin-bottom:8px">State Transition Log</div>
+        <div class="sm-log" id="sm-log"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== CHAOS SIMULATOR TAB ===== -->
+<div class="tab-page" id="tab-simulate">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="panel">
+      <div class="panel-title">Chaos Injection</div>
+      <div class="sim-panel" style="margin-bottom:10px">
+        <div class="sim-title">⚠ Fault Injection Controls</div>
+        <div class="sim-btns">
+          <button class="sim-btn" onclick="injectFault('crash')"><span>CRASH SERVICE</span>Kill a random pod instantly</button>
+          <button class="sim-btn" onclick="injectFault('latency')"><span>LATENCY SPIKE</span>Inject 900ms delay</button>
+          <button class="sim-btn" onclick="injectFault('memleak')"><span>MEMORY LEAK</span>Simulate OOM condition</button>
+          <button class="sim-btn" onclick="injectFault('netpart')"><span>NETWORK PARTITION</span>Isolate service mesh</button>
+          <button class="sim-btn" onclick="injectFault('dbfail')"><span>DB FAILURE</span>Block all DB connections</button>
+          <button class="sim-btn" onclick="injectFault('cpu')"><span>CPU STORM</span>Spike CPU to 95%+</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Injection History</div>
+        <div id="inject-log" style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Auto-Healing Response Feed</div>
+      <div id="heal-feed" style="display:flex;flex-direction:column;gap:4px;max-height:420px;overflow-y:auto"></div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <div class="toast-title" id="toast-title">EVENT</div>
+  <div id="toast-body"></div>
+</div>
+
+<script>
+const svcs=[
+  {name:'CORE-BANKING',status:'online',cpu:'23%',mem:'41%',instances:3,health:98},
+  {name:'AUTH-SERVICE',status:'online',cpu:'18%',mem:'36%',instances:3,health:100},
+  {name:'PAYMENT-SVC',status:'online',cpu:'45%',mem:'58%',instances:2,health:94},
+  {name:'FRAUD-DETECT',status:'healing',cpu:'87%',mem:'79%',instances:2,health:62},
+  {name:'LEDGER-SVC',status:'starting',cpu:'--',mem:'--',instances:1,health:40},
+  {name:'KYC-WORKER',status:'online',cpu:'34%',mem:'50%',instances:4,health:88},
+  {name:'NOTIF-SVC',status:'online',cpu:'12%',mem:'28%',instances:2,health:99},
+  {name:'REPORT-GEN',status:'online',cpu:'55%',mem:'62%',instances:1,health:91},
+  {name:'AUDIT-LOG',status:'online',cpu:'9%',mem:'32%',instances:2,health:100},
+  {name:'RISK-ENGINE',status:'healing',cpu:'76%',mem:'83%',instances:2,health:55},
+  {name:'API-GATEWAY',status:'online',cpu:'31%',mem:'44%',instances:3,health:97},
+  {name:'FX-SERVICE',status:'online',cpu:'27%',mem:'39%',instances:1,health:95},
+  {name:'ACCOUNTS-SVC',status:'online',cpu:'21%',mem:'37%',instances:2,health:99},
+  {name:'LOAN-ENGINE',status:'starting',cpu:'--',mem:'--',instances:1,health:60},
+  {name:'INTERBANK-GW',status:'offline',cpu:'0%',mem:'0%',instances:0,health:0},
+  {name:'CACHE-LAYER',status:'online',cpu:'8%',mem:'71%',instances:2,health:96},
+  {name:'CONFIG-SVC',status:'online',cpu:'4%',mem:'19%',instances:1,health:100},
+  {name:'MSG-BROKER',status:'online',cpu:'38%',mem:'52%',instances:2,health:93},
+];
+
+const fillMap={online:'pf-green',starting:'pf-cyan',healing:'pf-amber',offline:'pf-red',degraded:'pf-purple'};
+const badgeMap={online:'b-online',starting:'b-starting',healing:'b-healing',offline:'b-offline',degraded:'b-degraded'};
+
+function renderSvcs(){
+  document.getElementById('svc-grid').innerHTML=svcs.slice(0,18).map(s=>`
+    <div class="svc-card ${s.status}">
+      <div class="svc-head">
+        <div class="svc-name">${s.name}</div>
+        <div class="badge ${badgeMap[s.status]}">${s.status.toUpperCase()}</div>
+      </div>
+      <div class="svc-metrics">
+        <div class="svc-m"><div class="svc-m-l">CPU</div><div class="svc-m-v">${s.cpu}</div></div>
+        <div class="svc-m"><div class="svc-m-l">MEM</div><div class="svc-m-v">${s.mem}</div></div>
+        <div class="svc-m"><div class="svc-m-l">PODs</div><div class="svc-m-v">${s.instances>0?'x'+s.instances:'--'}</div></div>
+      </div>
+      <div class="pb"><div class="pb-fill ${fillMap[s.status]}" style="width:${s.health}%"></div></div>
+    </div>`).join('');
+}
+
+// ARC METERS
+const arcs=[
+  {label:'CPU CLUSTER',value:52,unit:'52%',sub:'48 cores active',color:'#00d2ff'},
+  {label:'MEMORY',value:68,unit:'68%',sub:'54.4 / 80 GB',color:'#00ff9d'},
+  {label:'NETWORK I/O',value:38,unit:'38%',sub:'1.9 / 5 GB/s',color:'#b44fff'},
+  {label:'DISK I/O',value:44,unit:'44%',sub:'3.5 / 8 GB/s',color:'#ffb300'},
+];
+function arcPath(cx,cy,r,pct){
+  const a=(pct/100)*270-135,rad=x=>x*Math.PI/180;
+  const sx=cx+r*Math.cos(rad(-135)),sy=cy+r*Math.sin(rad(-135));
+  const ex=cx+r*Math.cos(rad(a)),ey=cy+r*Math.sin(rad(a));
+  const lg=pct>(100*180/270)?1:0;
+  return `M${sx.toFixed(2)},${sy.toFixed(2)} A${r},${r} 0 ${lg},1 ${ex.toFixed(2)},${ey.toFixed(2)}`;
+}
+function renderArcs(){
+  document.getElementById('arc-list').innerHTML=arcs.map(m=>`
+    <div class="arc-row">
+      <div class="arc-svg-w">
+        <svg viewBox="0 0 58 58">
+          <path d="${arcPath(29,29,23,100)}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="4" stroke-linecap="round"/>
+          <path d="${arcPath(29,29,23,m.value)}" fill="none" stroke="${m.color}" stroke-width="4" stroke-linecap="round"/>
+        </svg>
+        <div class="arc-val" style="color:${m.color}">${m.unit}</div>
+      </div>
+      <div class="arc-info">
+        <div class="arc-lbl">${m.label}</div>
+        <div class="arc-sub">${m.sub}</div>
+        <div class="arc-bar"><div class="arc-bar-fill" style="width:${m.value}%;background:${m.color}"></div></div>
+      </div>
+    </div>`).join('');
+}
+
+// LOG
+const logs=[
+  {type:'var(--green)',msg:'PAYMENT-SVC healed',detail:'Latency spike resolved :: 340ms recovery',time:'07:33:58'},
+  {type:'var(--amber)',msg:'FRAUD-DETECT scaling',detail:'CPU 87% :: spawning replica pod-3',time:'07:33:44'},
+  {type:'var(--cyan)',msg:'LEDGER-SVC starting',detail:'Rolling restart v2.3.2 :: ETA 45s',time:'07:33:31'},
+  {type:'var(--red)',msg:'INTERBANK-GW offline',detail:'Connection timeout :: escalated',time:'07:32:59'},
+  {type:'var(--amber)',msg:'RISK-ENGINE healing',detail:'Memory leak detected :: container restart',time:'07:32:41'},
+  {type:'var(--green)',msg:'AUTH-SERVICE healthy',detail:'All 3 replicas nominal :: 0ms drift',time:'07:31:55'},
+  {type:'var(--green)',msg:'CACHE-LAYER restored',detail:'Redis cluster synced :: hit rate 94%',time:'07:31:30'},
+  {type:'var(--cyan)',msg:'SCHEDULER starting',detail:'Cron jobs reloading :: 12 tasks pending',time:'07:30:58'},
+  {type:'var(--green)',msg:'API-GATEWAY stable',detail:'Rate limit reset :: 8400 req/min',time:'07:30:21'},
+];
+function renderLog(){
+  document.getElementById('log-list').innerHTML=logs.map(l=>`
+    <div class="log-item">
+      <div class="log-dot" style="background:${l.type}"></div>
+      <div class="log-msg">${l.msg}<span>${l.detail}</span></div>
+      <div class="log-time">${l.time}</div>
+    </div>`).join('');
+}
+
+// KAFKA TAB
+const kafkaTopics=[
+  {name:'SERVICE_METRICS',partitions:8,msgs:'1,240/s',lag:'0',type:'monitoring'},
+  {name:'HEARTBEAT',partitions:4,msgs:'320/s',lag:'0',type:'monitoring'},
+  {name:'ERROR_EVENT',partitions:4,msgs:'42/s',lag:'12',type:'monitoring'},
+  {name:'ANOMALY_DETECTED',partitions:2,msgs:'8/s',lag:'0',type:'anomaly'},
+  {name:'LATENCY_SPIKE',partitions:2,msgs:'3/s',lag:'0',type:'anomaly'},
+  {name:'RESTART_REQUIRED',partitions:2,msgs:'1/s',lag:'0',type:'healing'},
+  {name:'REROUTE_TRAFFIC',partitions:2,msgs:'2/s',lag:'0',type:'healing'},
+  {name:'SERVICE_RECOVERED',partitions:4,msgs:'5/s',lag:'0',type:'result'},
+];
+const topicColors={monitoring:'var(--cyan)',anomaly:'var(--amber)',healing:'var(--red)',result:'var(--green)'};
+function renderKafka(){
+  document.getElementById('kafka-topics').innerHTML=kafkaTopics.map(t=>`
+    <div class="k-topic">
+      <div class="k-topic-name" style="color:${topicColors[t.type]}">${t.name}</div>
+      <div class="k-topic-meta">
+        <div class="k-m">parts: <span>${t.partitions}</span></div>
+        <div class="k-m">rate: <span>${t.msgs}</span></div>
+        <div class="k-m">lag: <span style="color:${t.lag==='0'?'var(--green)':'var(--amber)'}">${t.lag}</span></div>
+      </div>
+    </div>`).join('');
+  const flows=[
+    {name:'Monitoring → AI',color:'var(--cyan)',rate:'1,562',bg:'rgba(0,210,255,.15)'},
+    {name:'AI → Orchestrator',color:'var(--amber)',rate:'11',bg:'rgba(255,179,0,.15)'},
+    {name:'Orchestrator → Remediation',color:'var(--red)',rate:'3',bg:'rgba(255,58,58,.15)'},
+    {name:'Remediation → Result',color:'var(--green)',rate:'5',bg:'rgba(0,255,157,.15)'},
+  ];
+  document.getElementById('kafka-flow').innerHTML=flows.map(f=>`
+    <div class="k-flow-item">
+      <div class="k-flow-dot" style="background:${f.color}"></div>
+      <span style="font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--text-dim);min-width:190px">${f.name}</span>
+      <div class="k-flow-line" style="background:${f.bg}">
+        <div style="position:absolute;top:0;left:-50%;width:50%;height:100%;background:${f.color};animation:flow-move 2s linear infinite"></div>
+      </div>
+      <div class="event-counter" style="color:${f.color}">${f.rate}/s</div>
+    </div>`).join('');
+  const consumers=[
+    {group:'monitoring-consumers',topics:3,lag:'0',status:'online'},
+    {group:'anomaly-detector-group',topics:3,lag:'0',status:'online'},
+    {group:'healing-orchestrator',topics:4,lag:'2',status:'online'},
+    {group:'remediation-workers',topics:3,lag:'0',status:'online'},
+  ];
+  document.getElementById('kafka-consumers').innerHTML=consumers.map(c=>`
+    <div class="k-topic" style="margin-bottom:4px">
+      <div class="k-topic-name" style="color:var(--text)">${c.group}</div>
+      <div class="k-topic-meta">
+        <div class="k-m">topics: <span>${c.topics}</span></div>
+        <div class="k-m">lag: <span style="color:${c.lag==='0'?'var(--green)':'var(--amber)'}">${c.lag}</span></div>
+        <div class="k-m">status: <span style="color:var(--green)">${c.status}</span></div>
+      </div>
+    </div>`).join('');
+}
+
+// ANOMALY
+const anomalies=[
+  {svc:'FRAUD-DETECT',type:'critical',desc:'CPU 87% — Isolation Forest score: -0.91\nPredicted OOM in ~18 min',badge:'MEMORY LEAK'},
+  {svc:'RISK-ENGINE',type:'critical',desc:'Error rate 14% — 3σ above baseline\nAuto-restart triggered',badge:'ERROR SPIKE'},
+  {svc:'INTERBANK-GW',type:'warning',desc:'No heartbeat for 82s\nTraffic rerouted to backup',badge:'HEARTBEAT LOST'},
+  {svc:'LEDGER-SVC',type:'info',desc:'Pod restart post-rollback\nHealth check passing 40%',badge:'RECOVERING'},
+];
+function renderAnomalies(){
+  document.getElementById('anomaly-list').innerHTML=anomalies.map(a=>`
+    <div class="anomaly-item a-${a.type}">
+      <div class="a-svc" style="color:${a.type==='critical'?'var(--red)':a.type==='warning'?'var(--amber)':'var(--cyan)'}">${a.svc}</div>
+      <div class="a-desc">${a.desc}</div>
+      <div class="a-badge ab-${a.type}">${a.badge}</div>
+    </div>`).join('');
+}
+
+// LATENCY / ERROR CHARTS
+let latencyData=Array.from({length:60},(_,i)=>8+Math.sin(i/5)*4+Math.random()*6);
+let errorData=Array.from({length:60},(_,i)=>1+Math.sin(i/8)*0.5+Math.random()*0.8);
+function sparkPath(data,w,h){
+  const mx=Math.max(...data),mn=Math.min(...data),r=mx-mn||1;
+  return data.map((v,i)=>`${i===0?'M':'L'}${(i/(data.length-1)*w).toFixed(1)},${(h-(v-mn)/r*(h-10)+5).toFixed(1)}`).join(' ');
+}
+function renderCharts(){
+  const lc=document.getElementById('latency-chart');
+  const ec=document.getElementById('error-chart');
+  if(!lc||!ec)return;
+  const lp=sparkPath(latencyData,600,200);
+  const ep=sparkPath(errorData,600,200);
+  lc.innerHTML=`
+    <defs><linearGradient id="lg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#00d2ff" stop-opacity=".3"/><stop offset="100%" stop-color="#00d2ff" stop-opacity="0"/></linearGradient></defs>
+    <path d="${lp} L600,200 L0,200 Z" fill="url(#lg1)"/>
+    <path d="${lp}" fill="none" stroke="#00d2ff" stroke-width="1.5"/>
+    <line x1="0" y1="1" x2="600" y2="1" stroke="rgba(0,210,255,0.15)" stroke-width="1"/>`;
+  ec.innerHTML=`
+    <defs><linearGradient id="lg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ff3a3a" stop-opacity=".3"/><stop offset="100%" stop-color="#ff3a3a" stop-opacity="0"/></linearGradient></defs>
+    <path d="${ep} L600,200 L0,200 Z" fill="url(#lg2)"/>
+    <path d="${ep}" fill="none" stroke="#ff3a3a" stroke-width="1.5"/>`;
+}
+
+// REMEDIATION TAB
+const actions=[
+  {type:'restart',icon:'RST',label:'RESTART INITIATED',svc:'RISK-ENGINE',desc:'Container restart via Docker API :: pod-2 recycled',time:'07:33:51',progress:85,color:'var(--red)'},
+  {type:'scale',icon:'SCL',label:'AUTO-SCALE UP',svc:'FRAUD-DETECT',desc:'Scaling from 2 → 4 pods :: Kubernetes deployment updated',time:'07:33:44',progress:60,color:'var(--cyan)'},
+  {type:'route',icon:'RTE',label:'TRAFFIC REROUTE',svc:'INTERBANK-GW',desc:'Traffic redirected to interbank-gw-backup :: 100% rerouted',time:'07:32:59',progress:100,color:'var(--purple)'},
+  {type:'patch',icon:'PCH',label:'HOTFIX APPLIED',svc:'LEDGER-SVC',desc:'Null-check patch injected :: rolling restart in progress',time:'07:32:41',progress:40,color:'var(--amber)'},
+];
+const aiClassMap={restart:'ai-restart',scale:'ai-scale',route:'ai-route',patch:'ai-patch'};
+function renderActions(){
+  document.getElementById('action-list').innerHTML=actions.map(a=>`
+    <div class="action-item">
+      <div class="action-icon ${aiClassMap[a.type]}">${a.icon}</div>
+      <div class="action-body">
+        <div class="action-title" style="color:${a.color}">${a.label} — ${a.svc}</div>
+        <div class="action-desc">${a.desc}</div>
+        <div class="action-progress"><div class="ap-fill" style="width:${a.progress}%;background:${a.color}"></div></div>
+      </div>
+      <div class="action-time">${a.time}</div>
+    </div>`).join('');
+}
+const smStates=[
+  {name:'HEALTHY',label:'HST',done:true,active:false,error:false},
+  {name:'DEGRADED',label:'DGR',done:true,active:false,error:false},
+  {name:'CRITICAL',label:'CRT',done:false,active:true,error:false},
+  {name:'RECOVERING',label:'RCV',done:false,active:false,error:false},
+  {name:'HEALTHY',label:'HST',done:false,active:false,error:false},
+];
+const smLogs=[
+  {time:'07:33:51',msg:'RISK-ENGINE',ev:'DEGRADED → CRITICAL',cls:'err'},
+  {time:'07:33:52',msg:'RISK-ENGINE',ev:'restart initiated',cls:'warn'},
+  {time:'07:33:44',msg:'FRAUD-DETECT',ev:'HEALTHY → DEGRADED',cls:'warn'},
+  {time:'07:32:59',msg:'INTERBANK-GW',ev:'CRITICAL → OFFLINE',cls:'err'},
+  {time:'07:31:55',msg:'AUTH-SERVICE',ev:'RECOVERING → HEALTHY',cls:'hi'},
+  {time:'07:31:30',msg:'CACHE-LAYER',ev:'DEGRADED → RECOVERING',cls:'warn'},
+  {time:'07:30:21',msg:'PAYMENT-SVC',ev:'RECOVERING → HEALTHY',cls:'hi'},
+];
+function renderRemediation(){
+  renderActions();
+  document.getElementById('sm-states').innerHTML=smStates.map((s,i)=>`
+    ${i>0?`<div class="sm-arrow">→</div>`:''}
+    <div class="sm-state">
+      <div class="sm-state-circle ${s.done?'done':s.active?'active':s.error?'error':''}">${s.label}</div>
+      <div class="sm-state-name">${s.name}</div>
+    </div>`).join('');
+  document.getElementById('sm-log').innerHTML=smLogs.map(l=>`
+    <div class="sm-log-item">
+      <span class="sm-log-time">${l.time}</span>
+      <span style="color:var(--text)">${l.msg}</span>
+      <span class="${l.cls}">${l.ev}</span>
+    </div>`).join('');
+}
+
+// CHAOS SIMULATOR
+let injectCount=0;
+const faultDefs={
+  crash:{title:'POD CRASH',svc:()=>svcs[Math.floor(Math.random()*svcs.length)].name,color:'var(--red)',response:'Heartbeat lost :: orchestrator triggered restart → recovering'},
+  latency:{title:'LATENCY SPIKE',svc:()=>'PAYMENT-SVC',color:'var(--amber)',response:'Latency 900ms detected :: anomaly score -0.94 :: traffic rerouted'},
+  memleak:{title:'MEMORY LEAK',svc:()=>'FRAUD-DETECT',color:'var(--amber)',response:'Memory +2%/min :: predicted OOM 40min :: rolling restart scheduled'},
+  netpart:{title:'NETWORK PARTITION',svc:()=>'INTERBANK-GW',color:'var(--red)',response:'Mesh isolation detected :: backup route activated :: CRITICAL state'},
+  dbfail:{title:'DB FAILURE',svc:()=>'CORE-BANKING',color:'var(--red)',response:'DB pool exhausted :: deadlock cleared :: read replica promoted'},
+  cpu:{title:'CPU STORM',svc:()=>'RISK-ENGINE',color:'var(--amber)',response:'CPU 95% :: IsolationForest anomaly :: 2 replicas scaled up'},
+};
+function injectFault(type){
+  const f=faultDefs[type];
+  const svc=f.svc();
+  const now=new Date();
+  const ts=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  injectCount++;
+  const il=document.getElementById('inject-log');
+  il.insertAdjacentHTML('afterbegin',`<div style="font-family:'Share Tech Mono',monospace;font-size:.6rem;padding:4px 0;border-bottom:1px solid rgba(0,210,255,.06);display:flex;gap:8px">
+    <span style="color:rgba(0,210,255,.4)">${ts}</span>
+    <span style="color:${f.color}">[${f.title}]</span>
+    <span style="color:var(--text-dim)">${svc}</span>
+  </div>`);
+  const hf=document.getElementById('heal-feed');
+  setTimeout(()=>{
+    hf.insertAdjacentHTML('afterbegin',`<div style="font-family:'Share Tech Mono',monospace;font-size:.6rem;padding:5px 8px;border-left:2px solid ${f.color};margin-bottom:3px;background:rgba(0,0,0,.2)">
+      <span style="color:${f.color}">NEXUS DETECTED</span> ${f.title} on <span style="color:var(--cyan)">${svc}</span><br>
+      <span style="color:var(--text-dim)">${f.response}</span><br>
+      <span style="color:rgba(0,210,255,.3)">${ts} UTC</span>
+    </div>`);
+  },800);
+  showToast(f.title,`Fault injected on ${svc}. Auto-healing response initiated.`,f.color);
+}
+
+// TOAST
+function showToast(title,body,color='var(--cyan)'){
+  const t=document.getElementById('toast');
+  document.getElementById('toast-title').textContent=title;
+  document.getElementById('toast-title').style.color=color;
+  document.getElementById('toast-body').textContent=body;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3500);
+}
+
+// TAB SWITCHING
+function switchTab(name){
+  document.querySelectorAll('.tab-page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// CLOCK
+function updateClock(){
+  const now=new Date(),pad=n=>String(n).padStart(2,'0');
+  document.getElementById('clock').textContent=`${now.getUTCFullYear()}-${pad(now.getUTCMonth()+1)}-${pad(now.getUTCDate())} // ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())} UTC`;
+}
+
+// LIVE SIMULATION
+function liveUpdate(){
+  // Update latency chart
+  latencyData.shift();
+  latencyData.push(8+Math.random()*20);
+  errorData.shift();
+  errorData.push(0.5+Math.random()*2);
+  renderCharts();
+  // Heal progress
+  actions.forEach(a=>{if(a.progress<100)a.progress=Math.min(100,a.progress+2);});
+  if(document.getElementById('tab-remediation').classList.contains('active'))renderActions();
+  // Flicker health values
+  svcs.forEach(s=>{if(s.status==='online'){const n=Math.floor(Math.random()*3)-1;s.health=Math.min(100,Math.max(70,s.health+n));}});
+  if(document.getElementById('tab-overview').classList.contains('active')){
+    document.querySelectorAll('.svc-card.online .pb-fill').forEach((el,i)=>{
+      if(svcs[i])el.style.width=svcs[i].health+'%';
+    });
+  }
+}
+
+// INIT
+renderSvcs();renderArcs();renderLog();renderKafka();renderAnomalies();renderCharts();renderRemediation();
+updateClock();
+setInterval(updateClock,1000);
+setInterval(liveUpdate,2000);
+
+// Animate flow lines CSS
+const style=document.createElement('style');
+style.textContent='@keyframes flow-move{from{left:-50%}to{left:100%}}';
+document.head.appendChild(style);
+</script>
+</body>
+</html>
