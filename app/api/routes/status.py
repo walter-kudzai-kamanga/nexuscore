@@ -26,6 +26,16 @@ from app.services.state_store import store
 router = APIRouter()
 
 
+async def _build_dashboard_payload() -> Dict[str, Any]:
+    snapshot = get_dashboard_state()
+    try:
+        kafka_metrics = await kafka_observability_metrics()
+        snapshot["kafka"] = kafka_metrics
+    except Exception:
+        pass
+    return snapshot
+
+
 @router.get("/services")
 def services(_: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer"))) -> Dict[str, Dict[str, Any]]:
     return get_all_services()
@@ -83,13 +93,12 @@ async def check_offline(_: Dict[str, Any] = Depends(require_roles("admin", "oper
 
 @router.get("/dashboard/state")
 async def dashboard_state(_: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer"))) -> Dict[str, Any]:
-    snapshot = get_dashboard_state()
-    try:
-        kafka_metrics = await kafka_observability_metrics()
-        snapshot["kafka"] = kafka_metrics
-    except Exception:
-        pass
-    return snapshot
+    return await _build_dashboard_payload()
+
+
+@router.get("/dashboard/public/state")
+async def dashboard_public_state() -> Dict[str, Any]:
+    return await _build_dashboard_payload()
 
 
 @router.get("/metrics")
@@ -129,7 +138,23 @@ def logs(
 async def event_stream(_: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer"))) -> StreamingResponse:
     async def generator():
         with store.events.subscribe() as queue:
-            snapshot = get_dashboard_state()
+            snapshot = await _build_dashboard_payload()
+            yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
+            while True:
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"event: {message.event}\ndata: {json.dumps(message.payload)}\n\n"
+                except asyncio.TimeoutError:
+                    yield "event: ping\ndata: {}\n\n"
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
+
+
+@router.get("/events/public/stream")
+async def event_public_stream() -> StreamingResponse:
+    async def generator():
+        with store.events.subscribe() as queue:
+            snapshot = await _build_dashboard_payload()
             yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
             while True:
                 try:

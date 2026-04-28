@@ -734,7 +734,12 @@ function applySnapshot(snapshot){
   document.getElementById('leg-offline').textContent=summary.offline??0;
   document.getElementById('stat-latency').textContent=`${Math.round(Number(summary.avg_latency||0))}ms`;
   document.getElementById('stat-heals').textContent=summary.heals_today??0;
-  const topicRows=(snapshot.kafka?.topics||[]).map(t=>({name:t.name.toUpperCase(),partitions:t.partitions,msgs:`${t.throughput}/s`,lag:String(t.lag),type:'monitoring'}));
+  const groupLag=(snapshot.kafka?.consumer_groups||[]).reduce((acc,g)=>acc+Number(g.lag_total||0),0);
+  const topicRows=(snapshot.kafka?.topics||[]).map(t=>{
+    const endOffsets=t.end_offsets||{};
+    const throughput=Object.values(endOffsets).reduce((acc,v)=>acc+Number(v||0),0);
+    return {name:(t.name||'topic').toUpperCase(),partitions:Number(t.partitions||0),msgs:`${throughput}/s`,lag:String(groupLag),type:'monitoring'};
+  });
   kafkaTopics.splice(0,kafkaTopics.length,...topicRows);
   const healRows=(snapshot.healing||[]).slice(0,8).map(h=>({
     type:h.action==='scale_up'?'scale':h.action==='reroute'?'route':'restart',
@@ -753,14 +758,14 @@ function applySnapshot(snapshot){
 }
 async function refreshSnapshot(){
   try{
-    const res=await fetch('/api/dashboard/state');
+    const res=await fetch('/api/dashboard/public/state');
     if(!res.ok) return;
     const snapshot=await res.json();
     applySnapshot(snapshot);
   }catch(_e){}
 }
 function connectLiveStream(){
-  const source=new EventSource('/api/events/stream');
+  const source=new EventSource('/api/events/public/stream');
   source.addEventListener('snapshot',ev=>{try{applySnapshot(JSON.parse(ev.data));}catch(_e){}});
   source.addEventListener('service.heartbeat',()=>refreshSnapshot());
   source.addEventListener('service.offline',()=>refreshSnapshot());
