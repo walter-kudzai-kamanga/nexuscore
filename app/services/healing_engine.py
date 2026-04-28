@@ -8,6 +8,7 @@ from typing import Any, Deque, Dict
 
 from app.core.kafka_producer import send_audit, send_command, send_event
 from app.services.registry import get_state, update_service_state
+from app.services.saas_platform import evaluate_guarded_action, record_usage
 from app.services.state_store import store, utc_iso
 
 THRESHOLDS = {
@@ -148,12 +149,27 @@ async def evaluate_health(record: Dict[str, Any]) -> Dict[str, Any]:
         await store.events.publish("service.anomaly", {"service": service_name, "anomalies": anomalies, "state": updated})
 
     if desired_action:
+        tenant_id = (updated.get("metadata") or {}).get("tenant_id", "default")
+        severity = "critical" if any(item["severity"] == "critical" for item in anomalies) else "warning"
+        decision = evaluate_guarded_action(
+            tenant_id=tenant_id,
+            action=desired_action,
+            severity=severity,
+            context={"service": service_name, "root_cause": root_cause},
+        )
+        if not decision["approved"]:
+            store.add_log(service_name, "WARN", "Healing action blocked by tenant policy", {"tenant_id": tenant_id, "decision": decision})
+            await store.events.publish("healing.blocked", {"service": service_name, "tenant_id": tenant_id, "decision": decision})
+            return updated
+        record_usage(tenant_id, "auto_heal_decision", 1, {"service": service_name, "action": desired_action, "mode": decision["mode"]})
         await enqueue_healing_task(
             {
                 "service": service_name,
                 "action": desired_action,
                 "reason": anomalies[0]["message"] if anomalies else status,
                 "state": updated,
+                "tenant_id": tenant_id,
+                "policy_mode": decision["mode"],
             }
         )
 

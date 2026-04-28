@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.api.routes import auth, platform, status
+from app.api.routes import auth, platform, saas, status
 from app.core.config import get_env_or_file
 from app.core.kafka_consumer import start_kafka_consumer
 from app.core.migrations import run_startup_migrations
@@ -16,6 +16,7 @@ from app.core.security import hash_password
 from app.core.kafka_producer import ensure_kafka_topics, start_kafka_producer, stop_kafka_producer
 from app.services.healing_engine import healing_scheduler, monitoring_scheduler
 from app.services.registry import register_service
+from app.services.saas_platform import init_saas_schema
 from app.services.state_store import store
 
 app = FastAPI(title="NexusCore")
@@ -24,6 +25,7 @@ templates = Jinja2Templates("app/templates")
 app.include_router(status.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(platform.router, prefix="/api/platform")
+app.include_router(saas.router, prefix="/api/saas")
 
 BACKGROUND_TASKS: list[asyncio.Task] = []
 
@@ -110,6 +112,7 @@ def bootstrap_default_users() -> None:
 @app.on_event("startup")
 async def startup_event() -> None:
     run_startup_migrations()
+    init_saas_schema()
     await ensure_kafka_topics()
     await start_kafka_producer()
     bootstrap_default_users()
