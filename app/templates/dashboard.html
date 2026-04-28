@@ -753,19 +753,35 @@ function applySnapshot(snapshot){
 }
 async function refreshSnapshot(){
   try{
-    const res=await fetch('/api/dashboard/state');
+    const token=await ensureAuthToken();
+    const res=await fetch('/api/dashboard/state',{headers:{Authorization:`Bearer ${token}`}});
     if(!res.ok) return;
     const snapshot=await res.json();
     applySnapshot(snapshot);
   }catch(_e){}
 }
 function connectLiveStream(){
-  const source=new EventSource('/api/events/stream');
-  source.addEventListener('snapshot',ev=>{try{applySnapshot(JSON.parse(ev.data));}catch(_e){}});
-  source.addEventListener('service.heartbeat',()=>refreshSnapshot());
-  source.addEventListener('service.offline',()=>refreshSnapshot());
-  source.addEventListener('healing.executed',()=>refreshSnapshot());
-  source.onerror=()=>{source.close();setTimeout(connectLiveStream,3000);};
+  ensureAuthToken().then(token=>{
+    const source=new EventSource(`/api/events/stream?access_token=${encodeURIComponent(token)}`);
+    source.addEventListener('snapshot',ev=>{try{applySnapshot(JSON.parse(ev.data));}catch(_e){}});
+    source.addEventListener('service.heartbeat',()=>refreshSnapshot());
+    source.addEventListener('service.offline',()=>refreshSnapshot());
+    source.addEventListener('healing.executed',()=>refreshSnapshot());
+    source.onerror=()=>{source.close();setTimeout(connectLiveStream,3000);};
+  }).catch(()=>{setTimeout(connectLiveStream,5000);});
+}
+let authToken=null;
+async function ensureAuthToken(){
+  if(authToken) return authToken;
+  const res=await fetch('/api/auth/login',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username:'developer',password:'developer123'})
+  });
+  if(!res.ok) throw new Error('auth_failed');
+  const data=await res.json();
+  authToken=data.access_token;
+  return authToken;
 }
 
 // INIT

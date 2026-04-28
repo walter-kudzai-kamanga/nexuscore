@@ -5,10 +5,12 @@ import logging
 import os
 from typing import Any, Dict
 
-from aiokafka import AIOKafkaProducer
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
+from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
 LOGGER = logging.getLogger(__name__)
 BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+MONITORED_CONSUMER_GROUPS = os.getenv("KAFKA_MONITORED_GROUPS", "nexuscore-monitor,nexuscore-healing").split(",")
 TOPICS = {
     "service_health": "service.health",
     "service_events": "service.events",
@@ -43,10 +45,29 @@ async def stop_kafka_producer() -> None:
 
 
 async def ensure_kafka_topics() -> Dict[str, Any]:
+    admin = AIOKafkaAdminClient(bootstrap_servers=BOOTSTRAP_SERVERS)
+    await admin.start()
+    topic_specs = [
+        NewTopic(name=topic, num_partitions=3 if topic != TOPICS["dead_letter"] else 1, replication_factor=1)
+        for topic in TOPICS.values()
+    ]
+    created = []
+    errors = []
+    try:
+        try:
+            await admin.create_topics(topic_specs, validate_only=False)
+            created = [spec.name for spec in topic_specs]
+        except Exception as exc:  # pragma: no cover
+            errors.append(str(exc))
+    finally:
+        await admin.close()
+
     topic_status = {
         "bootstrap_servers": BOOTSTRAP_SERVERS,
+        "created": created,
+        "errors": errors,
         "topics": [
-            {"name": name, "topic": topic, "partitions": 1, "replication_factor": 1}
+            {"name": name, "topic": topic, "partitions": 3 if topic != TOPICS["dead_letter"] else 1, "replication_factor": 1}
             for name, topic in TOPICS.items()
         ],
         "schema_registry": {"enabled": False, "mode": "placeholder-json-schema"},
@@ -81,3 +102,53 @@ async def send_log(log_event: Dict[str, Any]) -> None:
 
 async def send_dead_letter(payload: Dict[str, Any]) -> None:
     await send_event(TOPICS["dead_letter"], payload)
+
+
+async def kafka_observability_metrics() -> Dict[str, Any]:
+    topics = list(TOPICS.values())
+    consumer_groups = [group.strip() for group in MONITORED_CONSUMER_GROUPS if group.strip()]
+    topic_metrics: list[Dict[str, Any]] = []
+    group_metrics: list[Dict[str, Any]] = []
+
+    inspector = AIOKafkaConsumer(bootstrap_servers=BOOTSTRAP_SERVERS, enable_auto_commit=False)
+    await inspector.start()
+    try:
+        for topic in topics:
+            partitions = await inspector.partitions_for_topic(topic) or set()
+            tps = [TopicPartition(topic, partition) for partition in partitions]
+            end_offsets = await inspector.end_offsets(tps) if tps else {}
+            topic_metrics.append(
+                {
+                    "name": topic,
+                    "partitions": len(partitions),
+                    "end_offsets": {f"{tp.topic}-{tp.partition}": value for tp, value in end_offsets.items()},
+                }
+            )
+
+        for group in consumer_groups:
+            group_consumer = AIOKafkaConsumer(
+                *topics,
+                bootstrap_servers=BOOTSTRAP_SERVERS,
+                group_id=group,
+                enable_auto_commit=False,
+            )
+            await group_consumer.start()
+            try:
+                lag_total = 0
+                partition_lag: Dict[str, int] = {}
+                for topic in topics:
+                    partitions = await group_consumer.partitions_for_topic(topic) or set()
+                    for partition in partitions:
+                        tp = TopicPartition(topic, partition)
+                        end = (await group_consumer.end_offsets([tp])).get(tp, 0)
+                        committed = await group_consumer.committed(tp) or 0
+                        lag = max(end - committed, 0)
+                        lag_total += lag
+                        partition_lag[f"{topic}-{partition}"] = lag
+                group_metrics.append({"group": group, "lag_total": lag_total, "partition_lag": partition_lag})
+            finally:
+                await group_consumer.stop()
+    finally:
+        await inspector.stop()
+
+    return {"bootstrap_servers": BOOTSTRAP_SERVERS, "topics": topic_metrics, "consumer_groups": group_metrics}

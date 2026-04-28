@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Body, Depends
 from fastapi.responses import PlainTextResponse
 
+from app.core.kafka_producer import kafka_observability_metrics
+from app.core.security import require_roles
 from app.services.state_store import store, utc_iso
 
 router = APIRouter()
 
 
 @router.get("/observability/prometheus")
-def prometheus_metrics() -> PlainTextResponse:
+def prometheus_metrics(_: Dict[str, Any] = Depends(require_roles("admin", "operator"))) -> PlainTextResponse:
     snapshot = store.build_dashboard_snapshot()
     summary = snapshot["summary"]
     body = "\n".join(
@@ -34,8 +36,16 @@ def prometheus_metrics() -> PlainTextResponse:
     return PlainTextResponse(body)
 
 
+@router.get("/kafka/metrics")
+async def kafka_metrics(_: Dict[str, Any] = Depends(require_roles("admin", "operator"))) -> Dict[str, Any]:
+    return await kafka_observability_metrics()
+
+
 @router.post("/bank/adapter/ingest")
-def bank_adapter_ingest(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+def bank_adapter_ingest(
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = Depends(require_roles("admin", "operator")),
+) -> Dict[str, Any]:
     event_type = payload.get("event_type", "transaction")
     customer_scope = payload.get("scope", "sensitive")
     encrypted = {"cipher": "AES-256-GCM", "version": "1", "payload": payload}
@@ -51,7 +61,10 @@ def bank_adapter_ingest(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
 
 
 @router.post("/identity/correlate")
-def correlate_identity(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+def correlate_identity(
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
     identities = payload.get("identities", [])
     score = round(min(len(identities) * 0.2, 0.99), 2)
     result = {
@@ -64,7 +77,10 @@ def correlate_identity(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
 
 
 @router.post("/graph/relationships")
-def relationship_graph(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+def relationship_graph(
+    payload: Dict[str, Any] = Body(...),
+    _: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
     nodes = payload.get("nodes", [])
     edges = payload.get("edges", [])
     graph = {"nodes": len(nodes), "edges": len(edges), "generated_at": utc_iso()}

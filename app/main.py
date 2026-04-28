@@ -9,9 +9,11 @@ from fastapi.templating import Jinja2Templates
 
 from app.api.routes import auth, platform, status
 from app.core.kafka_consumer import start_kafka_consumer
+from app.core.security import hash_password
 from app.core.kafka_producer import ensure_kafka_topics, start_kafka_producer, stop_kafka_producer
 from app.services.healing_engine import healing_scheduler, monitoring_scheduler
 from app.services.registry import register_service
+from app.services.state_store import store
 
 app = FastAPI(title="NexusCore")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -85,11 +87,26 @@ def bootstrap_default_services() -> None:
         register_service(service["service"], service)
 
 
+def bootstrap_default_users() -> None:
+    users = {
+        "admin": ("admin123", "admin"),
+        "operator": ("operator123", "operator"),
+        "developer": ("developer123", "developer"),
+    }
+    for username, (password, role) in users.items():
+        current = store.get_user(username)
+        if current:
+            continue
+        store.upsert_user(username, hash_password(password), role, is_active=True)
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
     await ensure_kafka_topics()
     await start_kafka_producer()
+    bootstrap_default_users()
     bootstrap_default_services()
+    store.cleanup_expired_refresh_tokens()
     BACKGROUND_TASKS.extend(
         [
             asyncio.create_task(start_kafka_consumer()),

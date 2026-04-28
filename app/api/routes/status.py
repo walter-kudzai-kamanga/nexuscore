@@ -4,11 +4,11 @@ import asyncio
 import json
 from typing import Any, Dict
 
-from fastapi import APIRouter, Body, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from app.core.kafka_producer import TOPICS, send_event
-from app.core.security import verify_service_api_key
+from app.core.kafka_producer import TOPICS, kafka_observability_metrics, send_event
+from app.core.security import require_roles, verify_service_api_key, verify_token
 from app.services.healing_engine import evaluate_health
 from app.services.registry import (
     detect_offline_services,
@@ -20,7 +20,6 @@ from app.services.registry import (
     get_recent_metrics,
     get_state,
     register_service,
-    update_service_state,
 )
 from app.services.state_store import store
 
@@ -28,12 +27,15 @@ router = APIRouter()
 
 
 @router.get("/services")
-def services() -> Dict[str, Dict[str, Any]]:
+def services(_: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer"))) -> Dict[str, Dict[str, Any]]:
     return get_all_services()
 
 
 @router.get("/services/{service_name}")
-def service(service_name: str) -> Dict[str, Any]:
+def service(
+    service_name: str,
+    _: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer")),
+) -> Dict[str, Any]:
     state = get_state(service_name)
     if not state:
         raise HTTPException(status_code=404, detail="Service not found")
@@ -72,7 +74,7 @@ async def heartbeat(
 
 
 @router.get("/services/offline/check")
-async def check_offline() -> Dict[str, Any]:
+async def check_offline(_: Dict[str, Any] = Depends(require_roles("admin", "operator"))) -> Dict[str, Any]:
     changed = detect_offline_services()
     for service in changed:
         await store.events.publish("service.offline", service)
@@ -80,35 +82,58 @@ async def check_offline() -> Dict[str, Any]:
 
 
 @router.get("/dashboard/state")
-def dashboard_state() -> Dict[str, Any]:
-    return get_dashboard_state()
+async def dashboard_state(_: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer"))) -> Dict[str, Any]:
+    snapshot = get_dashboard_state()
+    try:
+        kafka_metrics = await kafka_observability_metrics()
+        snapshot["kafka"] = kafka_metrics
+    except Exception:
+        pass
+    return snapshot
 
 
 @router.get("/metrics")
 def metrics(
     service_name: str | None = Query(default=None),
     limit: int = Query(default=60, ge=1, le=500),
+    _: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer")),
 ) -> Dict[str, Any]:
     return {"items": get_recent_metrics(service_name=service_name, limit=limit)}
 
 
 @router.get("/alerts")
-def alerts(limit: int = Query(default=25, ge=1, le=200)) -> Dict[str, Any]:
+def alerts(
+    limit: int = Query(default=25, ge=1, le=200),
+    _: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer")),
+) -> Dict[str, Any]:
     return {"items": get_recent_alerts(limit=limit)}
 
 
 @router.get("/healing/history")
-def healing_history(limit: int = Query(default=25, ge=1, le=200)) -> Dict[str, Any]:
+def healing_history(
+    limit: int = Query(default=25, ge=1, le=200),
+    _: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer")),
+) -> Dict[str, Any]:
     return {"items": get_recent_healing(limit=limit)}
 
 
 @router.get("/logs")
-def logs(limit: int = Query(default=25, ge=1, le=200)) -> Dict[str, Any]:
+def logs(
+    limit: int = Query(default=25, ge=1, le=200),
+    _: Dict[str, Any] = Depends(require_roles("admin", "operator", "developer")),
+) -> Dict[str, Any]:
     return {"items": get_recent_logs(limit=limit)}
 
 
 @router.get("/events/stream")
-async def event_stream() -> StreamingResponse:
+async def event_stream(access_token: str = Query(...)) -> StreamingResponse:
+    try:
+        identity = verify_token(access_token, expected_type="access")
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    if identity.get("role") not in {"admin", "operator", "developer"}:
+        raise HTTPException(status_code=403, detail="Insufficient role permissions")
+
     async def generator():
         with store.events.subscribe() as queue:
             snapshot = get_dashboard_state()

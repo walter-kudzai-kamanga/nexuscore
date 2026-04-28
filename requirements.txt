@@ -5,3 +5,6 @@ python-multipart
 websockets
 aiokafka
 httpx
+SQLAlchemy
+psycopg2-binary
+PyJWT

@@ -31,6 +31,7 @@ services:
     ports: ["8000:8000"]
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DATABASE_URL: postgresql+psycopg2://nexus:nexus@postgres:5432/nexuscore
       NEXUS_SERVICE_API_KEY: nexus-service-key
       NEXUS_SECRET_KEY: dev-secret-change-me
     depends_on: [kafka, postgres]

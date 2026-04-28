@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
+import os
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -10,8 +10,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
+
 UTC = timezone.utc
 DB_PATH = Path("app/data/nexuscore.db")
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
 OFFLINE_AFTER_SECONDS = 30
 METRIC_RETENTION_PER_SERVICE = 120
 ALERT_RETENTION = 200
@@ -64,22 +68,21 @@ class EventBus:
 
 
 class StateStore:
-    def __init__(self, db_path: Path = DB_PATH) -> None:
-        self.db_path = db_path
+    def __init__(self, database_url: str = DATABASE_URL) -> None:
+        self.database_url = database_url
         self._write_lock = threading.Lock()
         self.events = EventBus()
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.database_url.startswith("sqlite:///"):
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        self.engine: Engine = create_engine(self.database_url, pool_pre_ping=True, future=True)
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path, check_same_thread=False)
-        connection.row_factory = sqlite3.Row
-        return connection
+    @property
+    def dialect(self) -> str:
+        return self.engine.dialect.name
 
     def _init_db(self) -> None:
-        with self._connect() as conn:
-            conn.executescript(
-                """
+        ddl = """
                 CREATE TABLE IF NOT EXISTS services (
                     service_name TEXT PRIMARY KEY,
                     status TEXT NOT NULL,
@@ -141,28 +144,48 @@ class StateStore:
                 );
 
                 CREATE TABLE IF NOT EXISTS snapshots (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     snapshot_type TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS users (
+                    username TEXT PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS refresh_tokens (
+                    jti TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    token_hash TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    revoked INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
                 """
-            )
-            conn.commit()
+        if self.dialect == "sqlite":
+            ddl = ddl.replace("INTEGER PRIMARY KEY,", "INTEGER PRIMARY KEY AUTOINCREMENT,")
+        elif self.dialect == "postgresql":
+            ddl = ddl.replace("id INTEGER PRIMARY KEY,", "id BIGSERIAL PRIMARY KEY,")
+        with self.engine.begin() as conn:
+            for statement in [s.strip() for s in ddl.split(";") if s.strip()]:
+                conn.execute(text(statement))
 
-    def _execute(self, query: str, params: tuple[Any, ...] = ()) -> None:
+    def _execute(self, query: str, params: Dict[str, Any] | None = None) -> None:
         with self._write_lock:
-            with self._connect() as conn:
-                conn.execute(query, params)
-                conn.commit()
+            with self.engine.begin() as conn:
+                conn.execute(text(query), params or {})
 
-    def _fetchall(self, query: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
-        with self._connect() as conn:
-            return list(conn.execute(query, params).fetchall())
+    def _fetchall(self, query: str, params: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
+        with self.engine.connect() as conn:
+            return list(conn.execute(text(query), params or {}).mappings().all())
 
-    def _fetchone(self, query: str, params: tuple[Any, ...] = ()) -> Optional[sqlite3.Row]:
-        with self._connect() as conn:
-            return conn.execute(query, params).fetchone()
+    def _fetchone(self, query: str, params: Dict[str, Any] | None = None) -> Optional[Dict[str, Any]]:
+        with self.engine.connect() as conn:
+            row = conn.execute(text(query), params or {}).mappings().first()
+            return dict(row) if row else None
 
     def upsert_service(self, service_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         now = utc_iso()
@@ -190,7 +213,11 @@ class StateStore:
                 service_name, status, host, version, instances, cpu, memory, latency,
                 error_rate, last_heartbeat, last_seen, metadata_json, anomaly_score,
                 predicted_failure, desired_action, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (
+                :service_name, :status, :host, :version, :instances, :cpu, :memory, :latency,
+                :error_rate, :last_heartbeat, :last_seen, :metadata_json, :anomaly_score,
+                :predicted_failure, :desired_action, :updated_at
+            )
             ON CONFLICT(service_name) DO UPDATE SET
                 status=excluded.status,
                 host=excluded.host,
@@ -208,24 +235,24 @@ class StateStore:
                 desired_action=excluded.desired_action,
                 updated_at=excluded.updated_at
             """,
-            (
-                service_name,
-                normalized["status"],
-                normalized["host"],
-                normalized["version"],
-                normalized["instances"],
-                normalized["cpu"],
-                normalized["memory"],
-                normalized["latency"],
-                normalized["error_rate"],
-                normalized["last_heartbeat"],
-                normalized["last_seen"],
-                json.dumps(normalized["metadata"]),
-                normalized["anomaly_score"],
-                normalized["predicted_failure"],
-                normalized["desired_action"],
-                normalized["updated_at"],
-            ),
+            {
+                "service_name": service_name,
+                "status": normalized["status"],
+                "host": normalized["host"],
+                "version": normalized["version"],
+                "instances": normalized["instances"],
+                "cpu": normalized["cpu"],
+                "memory": normalized["memory"],
+                "latency": normalized["latency"],
+                "error_rate": normalized["error_rate"],
+                "last_heartbeat": normalized["last_heartbeat"],
+                "last_seen": normalized["last_seen"],
+                "metadata_json": json.dumps(normalized["metadata"]),
+                "anomaly_score": normalized["anomaly_score"],
+                "predicted_failure": normalized["predicted_failure"],
+                "desired_action": normalized["desired_action"],
+                "updated_at": normalized["updated_at"],
+            },
         )
         return self.get_service(service_name) or normalized
 
@@ -233,49 +260,62 @@ class StateStore:
         self._execute(
             """
             INSERT INTO metrics (service_name, cpu, memory, latency, error_rate, status, recorded_at, payload_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (:service_name, :cpu, :memory, :latency, :error_rate, :status, :recorded_at, :payload_json)
             """,
-            (
-                service_name,
-                float(payload.get("cpu", 0) or 0),
-                float(payload.get("memory", 0) or 0),
-                float(payload.get("latency", 0) or 0),
-                float(payload.get("error_rate", 0) or 0),
-                payload.get("status"),
-                payload.get("recorded_at", utc_iso()),
-                json.dumps(payload),
-            ),
+            {
+                "service_name": service_name,
+                "cpu": float(payload.get("cpu", 0) or 0),
+                "memory": float(payload.get("memory", 0) or 0),
+                "latency": float(payload.get("latency", 0) or 0),
+                "error_rate": float(payload.get("error_rate", 0) or 0),
+                "status": payload.get("status"),
+                "recorded_at": payload.get("recorded_at", utc_iso()),
+                "payload_json": json.dumps(payload),
+            },
         )
         self._execute(
             """
             DELETE FROM metrics
             WHERE id NOT IN (
-                SELECT id FROM metrics WHERE service_name = ? ORDER BY id DESC LIMIT ?
-            ) AND service_name = ?
+                SELECT id FROM metrics WHERE service_name = :service_name ORDER BY id DESC LIMIT :retention
+            ) AND service_name = :service_name
             """,
-            (service_name, METRIC_RETENTION_PER_SERVICE, service_name),
+            {"service_name": service_name, "retention": METRIC_RETENTION_PER_SERVICE},
         )
 
     def add_alert(self, service_name: str, severity: str, category: str, message: str, details: Dict[str, Any]) -> None:
         self._execute(
             """
             INSERT INTO alerts (service_name, severity, category, message, details_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (:service_name, :severity, :category, :message, :details_json, :created_at)
             """,
-            (service_name, severity, category, message, json.dumps(details), utc_iso()),
+            {
+                "service_name": service_name,
+                "severity": severity,
+                "category": category,
+                "message": message,
+                "details_json": json.dumps(details),
+                "created_at": utc_iso(),
+            },
         )
         self._execute(
-            "DELETE FROM alerts WHERE id NOT IN (SELECT id FROM alerts ORDER BY id DESC LIMIT ?)",
-            (ALERT_RETENTION,),
+            "DELETE FROM alerts WHERE id NOT IN (SELECT id FROM alerts ORDER BY id DESC LIMIT :retention)",
+            {"retention": ALERT_RETENTION},
         )
 
     def add_log(self, service_name: str, level: str, message: str, details: Dict[str, Any]) -> None:
         self._execute(
             """
             INSERT INTO logs (service_name, level, message, details_json, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (:service_name, :level, :message, :details_json, :created_at)
             """,
-            (service_name, level, message, json.dumps(details), utc_iso()),
+            {
+                "service_name": service_name,
+                "level": level,
+                "message": message,
+                "details_json": json.dumps(details),
+                "created_at": utc_iso(),
+            },
         )
 
     def add_healing_record(
@@ -289,23 +329,30 @@ class StateStore:
         self._execute(
             """
             INSERT INTO healing_history (service_name, action, reason, status, details_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (:service_name, :action, :reason, :status, :details_json, :created_at)
             """,
-            (service_name, action, reason, status, json.dumps(details), utc_iso()),
+            {
+                "service_name": service_name,
+                "action": action,
+                "reason": reason,
+                "status": status,
+                "details_json": json.dumps(details),
+                "created_at": utc_iso(),
+            },
         )
         self._execute(
-            "DELETE FROM healing_history WHERE id NOT IN (SELECT id FROM healing_history ORDER BY id DESC LIMIT ?)",
-            (HEALING_RETENTION,),
+            "DELETE FROM healing_history WHERE id NOT IN (SELECT id FROM healing_history ORDER BY id DESC LIMIT :retention)",
+            {"retention": HEALING_RETENTION},
         )
 
     def create_snapshot(self, snapshot_type: str, payload: Dict[str, Any]) -> None:
         self._execute(
-            "INSERT INTO snapshots (snapshot_type, payload_json, created_at) VALUES (?, ?, ?)",
-            (snapshot_type, json.dumps(payload), utc_iso()),
+            "INSERT INTO snapshots (snapshot_type, payload_json, created_at) VALUES (:snapshot_type, :payload_json, :created_at)",
+            {"snapshot_type": snapshot_type, "payload_json": json.dumps(payload), "created_at": utc_iso()},
         )
 
     def get_service(self, service_name: str) -> Optional[Dict[str, Any]]:
-        row = self._fetchone("SELECT * FROM services WHERE service_name = ?", (service_name,))
+        row = self._fetchone("SELECT * FROM services WHERE service_name = :service_name", {"service_name": service_name})
         return self._serialize_service(row) if row else None
 
     def get_all_services(self) -> Dict[str, Dict[str, Any]]:
@@ -315,24 +362,85 @@ class StateStore:
     def get_metrics(self, service_name: Optional[str] = None, limit: int = 60) -> List[Dict[str, Any]]:
         if service_name:
             rows = self._fetchall(
-                "SELECT * FROM metrics WHERE service_name = ? ORDER BY id DESC LIMIT ?",
-                (service_name, limit),
+                "SELECT * FROM metrics WHERE service_name = :service_name ORDER BY id DESC LIMIT :limit",
+                {"service_name": service_name, "limit": limit},
             )
         else:
-            rows = self._fetchall("SELECT * FROM metrics ORDER BY id DESC LIMIT ?", (limit,))
+            rows = self._fetchall("SELECT * FROM metrics ORDER BY id DESC LIMIT :limit", {"limit": limit})
         return [self._serialize_metric(row) for row in rows]
 
     def get_recent_alerts(self, limit: int = 25) -> List[Dict[str, Any]]:
-        rows = self._fetchall("SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,))
+        rows = self._fetchall("SELECT * FROM alerts ORDER BY id DESC LIMIT :limit", {"limit": limit})
         return [self._serialize_alert(row) for row in rows]
 
     def get_recent_logs(self, limit: int = 25) -> List[Dict[str, Any]]:
-        rows = self._fetchall("SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,))
+        rows = self._fetchall("SELECT * FROM logs ORDER BY id DESC LIMIT :limit", {"limit": limit})
         return [self._serialize_log(row) for row in rows]
 
     def get_recent_healing(self, limit: int = 25) -> List[Dict[str, Any]]:
-        rows = self._fetchall("SELECT * FROM healing_history ORDER BY id DESC LIMIT ?", (limit,))
+        rows = self._fetchall("SELECT * FROM healing_history ORDER BY id DESC LIMIT :limit", {"limit": limit})
         return [self._serialize_healing(row) for row in rows]
+
+    def upsert_user(self, username: str, password_hash: str, role: str, is_active: bool = True) -> None:
+        self._execute(
+            """
+            INSERT INTO users (username, password_hash, role, is_active, created_at)
+            VALUES (:username, :password_hash, :role, :is_active, :created_at)
+            ON CONFLICT(username) DO UPDATE SET
+                password_hash = excluded.password_hash,
+                role = excluded.role,
+                is_active = excluded.is_active
+            """,
+            {
+                "username": username,
+                "password_hash": password_hash,
+                "role": role,
+                "is_active": 1 if is_active else 0,
+                "created_at": utc_iso(),
+            },
+        )
+
+    def get_user(self, username: str) -> Optional[Dict[str, Any]]:
+        row = self._fetchone("SELECT * FROM users WHERE username = :username", {"username": username})
+        if not row:
+            return None
+        return {
+            "username": row["username"],
+            "password_hash": row["password_hash"],
+            "role": row["role"],
+            "is_active": bool(row["is_active"]),
+            "created_at": row["created_at"],
+        }
+
+    def save_refresh_token(self, jti: str, username: str, token_hash: str, expires_at: str) -> None:
+        self._execute(
+            """
+            INSERT INTO refresh_tokens (jti, username, token_hash, expires_at, revoked, created_at)
+            VALUES (:jti, :username, :token_hash, :expires_at, 0, :created_at)
+            """,
+            {"jti": jti, "username": username, "token_hash": token_hash, "expires_at": expires_at, "created_at": utc_iso()},
+        )
+
+    def is_refresh_token_active(self, jti: str, token_hash: str) -> bool:
+        row = self._fetchone(
+            "SELECT * FROM refresh_tokens WHERE jti = :jti AND token_hash = :token_hash AND revoked = 0",
+            {"jti": jti, "token_hash": token_hash},
+        )
+        if not row:
+            return False
+        try:
+            return datetime.fromisoformat(row["expires_at"]) > utc_now()
+        except ValueError:
+            return False
+
+    def revoke_refresh_token(self, jti: str) -> None:
+        self._execute("UPDATE refresh_tokens SET revoked = 1 WHERE jti = :jti", {"jti": jti})
+
+    def revoke_user_refresh_tokens(self, username: str) -> None:
+        self._execute("UPDATE refresh_tokens SET revoked = 1 WHERE username = :username", {"username": username})
+
+    def cleanup_expired_refresh_tokens(self) -> None:
+        self._execute("DELETE FROM refresh_tokens WHERE expires_at < :now", {"now": utc_iso()})
 
     def detect_offline_services(self) -> List[Dict[str, Any]]:
         threshold = utc_now() - timedelta(seconds=OFFLINE_AFTER_SECONDS)
@@ -421,7 +529,7 @@ class StateStore:
         self.create_snapshot("dashboard", snapshot)
         return snapshot
 
-    def _serialize_service(self, row: sqlite3.Row) -> Dict[str, Any]:
+    def _serialize_service(self, row: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "service": row["service_name"],
             "status": row["status"],
@@ -441,7 +549,7 @@ class StateStore:
             "updated_at": row["updated_at"],
         }
 
-    def _serialize_metric(self, row: sqlite3.Row) -> Dict[str, Any]:
+    def _serialize_metric(self, row: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id": row["id"],
             "service": row["service_name"],
@@ -454,7 +562,7 @@ class StateStore:
             "payload": json.loads(row["payload_json"] or "{}"),
         }
 
-    def _serialize_alert(self, row: sqlite3.Row) -> Dict[str, Any]:
+    def _serialize_alert(self, row: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id": row["id"],
             "service": row["service_name"],
@@ -465,7 +573,7 @@ class StateStore:
             "created_at": row["created_at"],
         }
 
-    def _serialize_log(self, row: sqlite3.Row) -> Dict[str, Any]:
+    def _serialize_log(self, row: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id": row["id"],
             "service": row["service_name"],
@@ -475,7 +583,7 @@ class StateStore:
             "created_at": row["created_at"],
         }
 
-    def _serialize_healing(self, row: sqlite3.Row) -> Dict[str, Any]:
+    def _serialize_healing(self, row: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id": row["id"],
             "service": row["service_name"],
