@@ -103,7 +103,7 @@ class StateStore:
                 );
 
                 CREATE TABLE IF NOT EXISTS metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     service_name TEXT NOT NULL,
                     cpu REAL DEFAULT 0,
                     memory REAL DEFAULT 0,
@@ -115,7 +115,7 @@ class StateStore:
                 );
 
                 CREATE TABLE IF NOT EXISTS healing_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     service_name TEXT NOT NULL,
                     action TEXT NOT NULL,
                     reason TEXT NOT NULL,
@@ -125,7 +125,7 @@ class StateStore:
                 );
 
                 CREATE TABLE IF NOT EXISTS alerts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     service_name TEXT NOT NULL,
                     severity TEXT NOT NULL,
                     category TEXT NOT NULL,
@@ -135,7 +135,7 @@ class StateStore:
                 );
 
                 CREATE TABLE IF NOT EXISTS logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id INTEGER PRIMARY KEY,
                     service_name TEXT NOT NULL,
                     level TEXT NOT NULL,
                     message TEXT NOT NULL,
@@ -166,7 +166,7 @@ class StateStore:
                 );
                 """
         if self.dialect == "sqlite":
-            ddl = ddl.replace("INTEGER PRIMARY KEY,", "INTEGER PRIMARY KEY AUTOINCREMENT,")
+            ddl = ddl.replace("id INTEGER PRIMARY KEY,", "id INTEGER PRIMARY KEY AUTOINCREMENT,")
         elif self.dialect == "postgresql":
             ddl = ddl.replace("id INTEGER PRIMARY KEY,", "id BIGSERIAL PRIMARY KEY,")
         with self.engine.begin() as conn:

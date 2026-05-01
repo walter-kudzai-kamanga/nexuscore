@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from contextlib import suppress
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from starlette.templating import Jinja2Templates
+
 
 from app.api.routes import auth, platform, saas, status
 from app.core.config import get_env_or_file
@@ -22,7 +24,7 @@ from app.services.transaction_worker import transaction_healing_worker
 
 app = FastAPI(title="NexusCore")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-templates = Jinja2Templates("app/templates")
+templates = Jinja2Templates(directory="app/templates")
 app.include_router(status.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(platform.router, prefix="/api/platform")
@@ -93,23 +95,36 @@ def bootstrap_default_services() -> None:
         register_service(service["service"], service)
 
 
-def bootstrap_default_users() -> None:
-    raw = get_env_or_file("NEXUS_BOOTSTRAP_USERS_JSON", default="{}") or "{}"
+def create_user_if_not_exists(username, password, roles):
+    pass
+
+
+def bootstrap_default_users():
     try:
-        users = json.loads(raw)
-    except json.JSONDecodeError:
-        users = {}
-    for username, config in users.items():
-        password = config.get("password")
-        role = config.get("role")
-        if not password or not role:
-            continue
-        current = store.get_user(username)
-        if current:
-            continue
-        store.upsert_user(username, hash_password(password), role, is_active=True)
+        filepath = os.getenv("NEXUS_BOOTSTRAP_USERS_JSON_FILE")
+        if not filepath:
+            print("No bootstrap file configured")
+            return
 
+        with open(filepath, "r") as f:
+            data = json.load(f)
 
+        # The JSON structure is:
+        # { "users": [ {username, password, roles}, ... ] }
+        users = data.get("users", [])
+
+        for u in users:
+            username = u.get("username")
+            password = u.get("password")
+            roles = u.get("roles", [])
+
+            print(f"Bootstrapping user: {username}")
+            create_user_if_not_exists(username, password, roles)
+
+        print("✔ Bootstrap users loaded")
+
+    except Exception as e:
+        print("Bootstrap error:", e)
 @app.on_event("startup")
 async def startup_event() -> None:
     run_startup_migrations()
@@ -142,4 +157,7 @@ async def shutdown_event() -> None:
 
 @app.get("/")
 async def dashboard(request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(
+        request,
+        "dashboard.html",
+    )

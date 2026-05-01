@@ -26,7 +26,7 @@ def upgrade() -> None:
     id_type = _id_column_sql(dialect_name)
 
     op.execute(
-        f"""
+        """
         CREATE TABLE IF NOT EXISTS services (
             service_name TEXT PRIMARY KEY,
             status TEXT NOT NULL,
@@ -39,7 +39,7 @@ def upgrade() -> None:
             error_rate REAL DEFAULT 0,
             last_heartbeat TEXT,
             last_seen TEXT,
-            metadata_json TEXT DEFAULT '{{}}',
+            metadata_json TEXT DEFAULT '{}',
             anomaly_score REAL DEFAULT 0,
             predicted_failure INTEGER DEFAULT 0,
             desired_action TEXT,

@@ -14,8 +14,14 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   postgres:
     image: postgres:16
@@ -24,10 +30,16 @@ services:
       POSTGRES_USER: nexus
       POSTGRES_PASSWORD: nexus
       POSTGRES_DB: nexuscore
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexus"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   nexuscore:
     build: .
-    command: python run.py
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports: ["8000:8000"]
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -38,7 +50,11 @@ services:
       NEXUS_COOKIE_SECURE: "false"
       NEXUS_AUTO_MIGRATE: "true"
       NEXUS_AUTO_MIGRATE_WITH_LOCK: "true"
-    depends_on: [kafka, postgres]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     secrets:
       - nexus_service_api_key
       - nexus_secret_key

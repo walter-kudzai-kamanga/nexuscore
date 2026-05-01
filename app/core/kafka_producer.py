@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+from contextlib import suppress
 from typing import Any, Dict
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, TopicPartition
@@ -114,7 +116,7 @@ async def kafka_observability_metrics() -> Dict[str, Any]:
     await inspector.start()
     try:
         for topic in topics:
-            partitions = await inspector.partitions_for_topic(topic) or set()
+            partitions = inspector.partitions_for_topic(topic) or set()
             tps = [TopicPartition(topic, partition) for partition in partitions]
             end_offsets = await inspector.end_offsets(tps) if tps else {}
             topic_metrics.append(
@@ -137,7 +139,7 @@ async def kafka_observability_metrics() -> Dict[str, Any]:
                 lag_total = 0
                 partition_lag: Dict[str, int] = {}
                 for topic in topics:
-                    partitions = await group_consumer.partitions_for_topic(topic) or set()
+                    partitions = group_consumer.partitions_for_topic(topic) or set()
                     for partition in partitions:
                         tp = TopicPartition(topic, partition)
                         end = (await group_consumer.end_offsets([tp])).get(tp, 0)
@@ -147,8 +149,10 @@ async def kafka_observability_metrics() -> Dict[str, Any]:
                         partition_lag[f"{topic}-{partition}"] = lag
                 group_metrics.append({"group": group, "lag_total": lag_total, "partition_lag": partition_lag})
             finally:
-                await group_consumer.stop()
+                with suppress(asyncio.CancelledError):
+                    await group_consumer.stop()
     finally:
-        await inspector.stop()
+        with suppress(asyncio.CancelledError):
+            await inspector.stop()
 
     return {"bootstrap_servers": BOOTSTRAP_SERVERS, "topics": topic_metrics, "consumer_groups": group_metrics}
