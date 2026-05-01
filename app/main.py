@@ -16,6 +16,7 @@ from app.core.kafka_consumer import start_kafka_consumer
 from app.core.migrations import run_startup_migrations
 from app.core.security import hash_password
 from app.core.kafka_producer import ensure_kafka_topics, start_kafka_producer, stop_kafka_producer
+from app.services.demo_mode import demo_heartbeat_scheduler, demo_mode_enabled
 from app.services.healing_engine import healing_scheduler, monitoring_scheduler
 from app.services.registry import register_service
 from app.services.saas_platform import init_saas_schema
@@ -142,6 +143,8 @@ async def startup_event() -> None:
             asyncio.create_task(transaction_healing_worker()),
         ]
     )
+    if demo_mode_enabled():
+        BACKGROUND_TASKS.append(asyncio.create_task(demo_heartbeat_scheduler()))
 
 
 @app.on_event("shutdown")

@@ -388,6 +388,9 @@ body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(r
       <div class="panel-title">Chaos Injection</div>
       <div class="sim-panel" style="margin-bottom:10px">
         <div class="sim-title">⚠ Fault Injection Controls</div>
+        <div style="font-family:'Share Tech Mono',monospace;font-size:.6rem;color:var(--text-dim);line-height:1.5;margin-bottom:10px">
+          Demo mode buttons call the live backend and push real healing actions into the remediation feed.
+        </div>
         <div class="sim-btns">
           <button class="sim-btn" onclick="injectFault('crash')"><span>CRASH SERVICE</span>Kill a random pod instantly</button>
           <button class="sim-btn" onclick="injectFault('latency')"><span>LATENCY SPIKE</span>Inject 900ms delay</button>
@@ -658,34 +661,46 @@ function renderRemediation(){
 // CHAOS SIMULATOR
 let injectCount=0;
 const faultDefs={
-  crash:{title:'POD CRASH',svc:()=>svcs[Math.floor(Math.random()*svcs.length)].name,color:'var(--red)',response:'Heartbeat lost :: orchestrator triggered restart → recovering'},
-  latency:{title:'LATENCY SPIKE',svc:()=>'PAYMENT-SVC',color:'var(--amber)',response:'Latency 900ms detected :: anomaly score -0.94 :: traffic rerouted'},
-  memleak:{title:'MEMORY LEAK',svc:()=>'FRAUD-DETECT',color:'var(--amber)',response:'Memory +2%/min :: predicted OOM 40min :: rolling restart scheduled'},
-  netpart:{title:'NETWORK PARTITION',svc:()=>'INTERBANK-GW',color:'var(--red)',response:'Mesh isolation detected :: backup route activated :: CRITICAL state'},
-  dbfail:{title:'DB FAILURE',svc:()=>'CORE-BANKING',color:'var(--red)',response:'DB pool exhausted :: deadlock cleared :: read replica promoted'},
-  cpu:{title:'CPU STORM',svc:()=>'RISK-ENGINE',color:'var(--amber)',response:'CPU 95% :: IsolationForest anomaly :: 2 replicas scaled up'},
+  crash:{title:'POD CRASH',svc:()=>'AUTH-SERVICE',color:'var(--red)',response:'Heartbeat loss simulated :: automatic restart queued'},
+  latency:{title:'LATENCY SPIKE',svc:()=>'PAYMENTS-SERVICE',color:'var(--amber)',response:'Latency spike detected :: traffic reroute queued'},
+  memleak:{title:'MEMORY LEAK',svc:()=>'NOTIFICATION-SERVICE',color:'var(--amber)',response:'Memory pressure detected :: rolling restart queued'},
+  netpart:{title:'NETWORK PARTITION',svc:()=>'TRANSACTIONS-SERVICE',color:'var(--red)',response:'Dependency instability detected :: remediation queued'},
+  dbfail:{title:'DB FAILURE',svc:()=>'PAYMENTS-SERVICE',color:'var(--red)',response:'Database failure simulated :: restart queued'},
+  cpu:{title:'CPU STORM',svc:()=>'USER-SERVICE',color:'var(--amber)',response:'CPU saturation detected :: scale-up queued'},
 };
-function injectFault(type){
+async function injectFault(type){
   const f=faultDefs[type];
-  const svc=f.svc();
-  const now=new Date();
-  const ts=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
-  injectCount++;
-  const il=document.getElementById('inject-log');
-  il.insertAdjacentHTML('afterbegin',`<div style="font-family:'Share Tech Mono',monospace;font-size:.6rem;padding:4px 0;border-bottom:1px solid rgba(0,210,255,.06);display:flex;gap:8px">
-    <span style="color:rgba(0,210,255,.4)">${ts}</span>
-    <span style="color:${f.color}">[${f.title}]</span>
-    <span style="color:var(--text-dim)">${svc}</span>
-  </div>`);
-  const hf=document.getElementById('heal-feed');
-  setTimeout(()=>{
+  showToast(f.title,'Injecting live demo fault into the backend...',f.color);
+  try{
+    const res=await fetch('/api/demo/chaos',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scenario:type}),
+    });
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.detail||'Chaos injection failed');
+    const svc=((data.service||f.svc())+'').toUpperCase();
+    const responseText=data.response||f.response;
+    const now=new Date();
+    const ts=`${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+    injectCount++;
+    const il=document.getElementById('inject-log');
+    il.insertAdjacentHTML('afterbegin',`<div style="font-family:'Share Tech Mono',monospace;font-size:.6rem;padding:4px 0;border-bottom:1px solid rgba(0,210,255,.06);display:flex;gap:8px">
+      <span style="color:rgba(0,210,255,.4)">${ts}</span>
+      <span style="color:${f.color}">[${f.title}]</span>
+      <span style="color:var(--text-dim)">${svc}</span>
+    </div>`);
+    const hf=document.getElementById('heal-feed');
     hf.insertAdjacentHTML('afterbegin',`<div style="font-family:'Share Tech Mono',monospace;font-size:.6rem;padding:5px 8px;border-left:2px solid ${f.color};margin-bottom:3px;background:rgba(0,0,0,.2)">
       <span style="color:${f.color}">NEXUS DETECTED</span> ${f.title} on <span style="color:var(--cyan)">${svc}</span><br>
-      <span style="color:var(--text-dim)">${f.response}</span><br>
+      <span style="color:var(--text-dim)">${responseText}</span><br>
       <span style="color:rgba(0,210,255,.3)">${ts} UTC</span>
     </div>`);
-  },800);
-  showToast(f.title,`Fault injected on ${svc}. Auto-healing response initiated.`,f.color);
+    refreshSnapshot();
+    showToast(f.title,`Fault injected on ${svc}. Live healing flow is now active.`,f.color);
+  }catch(err){
+    showToast('DEMO ERROR',err.message||'Could not inject live demo fault.','var(--red)');
+  }
 }
 
 // TOAST
@@ -768,8 +783,11 @@ function connectLiveStream(){
   const source=new EventSource('/api/events/public/stream');
   source.addEventListener('snapshot',ev=>{try{applySnapshot(JSON.parse(ev.data));}catch(_e){}});
   source.addEventListener('service.heartbeat',()=>refreshSnapshot());
+  source.addEventListener('service.anomaly',()=>refreshSnapshot());
   source.addEventListener('service.offline',()=>refreshSnapshot());
+  source.addEventListener('healing.queued',()=>refreshSnapshot());
   source.addEventListener('healing.executed',()=>refreshSnapshot());
+  source.addEventListener('demo.chaos',()=>refreshSnapshot());
   source.onerror=()=>{source.close();setTimeout(connectLiveStream,3000);};
 }
 

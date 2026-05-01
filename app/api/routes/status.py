@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.kafka_producer import TOPICS, kafka_observability_metrics, send_event
 from app.core.security import require_roles, verify_service_api_key
+from app.services.demo_mode import demo_mode_enabled, inject_demo_chaos
 from app.services.healing_engine import evaluate_health
 from app.services.registry import (
     detect_offline_services,
@@ -29,9 +30,9 @@ router = APIRouter()
 async def _build_dashboard_payload() -> Dict[str, Any]:
     snapshot = get_dashboard_state()
     try:
-        kafka_metrics = await kafka_observability_metrics()
+        kafka_metrics = await asyncio.wait_for(kafka_observability_metrics(), timeout=2)
         snapshot["kafka"] = kafka_metrics
-    except Exception:
+    except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
         pass
     return snapshot
 
@@ -99,6 +100,25 @@ async def dashboard_state(_: Dict[str, Any] = Depends(require_roles("admin", "op
 @router.get("/dashboard/public/state")
 async def dashboard_public_state() -> Dict[str, Any]:
     return await _build_dashboard_payload()
+
+
+@router.post("/demo/chaos")
+async def demo_chaos(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    if not demo_mode_enabled():
+        raise HTTPException(status_code=403, detail="Demo mode is disabled")
+
+    scenario = str(payload.get("scenario", "")).strip().lower()
+    if not scenario:
+        raise HTTPException(status_code=400, detail="scenario is required")
+
+    try:
+        result = await inject_demo_chaos(scenario, payload.get("service"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    return {"ok": True, **result}
 
 
 @router.get("/metrics")

@@ -50,6 +50,9 @@ services:
       NEXUS_COOKIE_SECURE: "false"
       NEXUS_AUTO_MIGRATE: "true"
       NEXUS_AUTO_MIGRATE_WITH_LOCK: "true"
+      NEXUS_ENABLE_DEMO_MODE: ${NEXUS_ENABLE_DEMO_MODE:-false}
+      NEXUS_DEMO_HEARTBEAT_INTERVAL_SECONDS: ${NEXUS_DEMO_HEARTBEAT_INTERVAL_SECONDS:-8}
+      NEXUS_DEMO_RECOVERY_DELAY_SECONDS: ${NEXUS_DEMO_RECOVERY_DELAY_SECONDS:-5}
     depends_on:
       kafka:
         condition: service_healthy
@@ -67,4 +70,3 @@ secrets:
     file: .secrets/nexus_secret_key.txt
   nexus_bootstrap_users_json:
     file: .secrets/nexus_bootstrap_users_json.json
-
